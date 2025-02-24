@@ -1,5 +1,6 @@
 # GroovePal
-**Masterthesis Project**
+**Masterthesis Project**:
+
 Style-Aware Prediction of Rock/Metal Drum Sequences Using xLSTM Network 
 
 ## Scientific Question
