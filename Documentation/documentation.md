@@ -21,4 +21,7 @@ conda activate GroovePal
 - Created the repository 
 - Environment setup
 
+### 25.02.2025
+- Added eda notebook
+- midi analysis
 
