@@ -25,3 +25,8 @@ conda activate GroovePal
 - Added eda notebook
 - midi analysis
 
+### 27.02.2025
+- Metadata analysis for mb and foundational
+
+
+
