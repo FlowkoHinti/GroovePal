@@ -28,5 +28,8 @@ conda activate GroovePal
 ### 27.02.2025
 - Metadata analysis for mb and foundational
 
+### 03.03.2025
+- more metadata analysis -> section/styles of mb data
+
 
 
