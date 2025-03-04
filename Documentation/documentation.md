@@ -31,5 +31,8 @@ conda activate GroovePal
 ### 03.03.2025
 - more metadata analysis -> section/styles of mb data
 
+### 04.03.2025
+- working on piano roll plotter
+
 
 
