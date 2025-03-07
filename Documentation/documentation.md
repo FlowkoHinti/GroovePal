@@ -34,5 +34,8 @@ conda activate GroovePal
 ### 04.03.2025
 - working on piano roll plotter
 
+### 07.03.2025
+- finished drum roll plotting and done some analysis
+
 
 
