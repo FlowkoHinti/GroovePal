@@ -52,5 +52,4 @@ class DNADataset(Dataset):
         return len(self.dnas)
 
     def __getitem__(self, i):
-
-        pass
+        return self.dnas[i]
