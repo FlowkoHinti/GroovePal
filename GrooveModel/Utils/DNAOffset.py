@@ -2,8 +2,8 @@ import numpy as np
 
 OFFSET_TICKS_SIZE = 960
 
-def normalize_offset_ticks(offset: int, ticks_per_qn: int, start_at_zero=True,
-                           resolution: int = OFFSET_TICKS_SIZE) -> int:
+def encode_offset_ticks(offset: int, ticks_per_qn: int, start_at_zero=True,
+                        resolution: int = OFFSET_TICKS_SIZE) -> int:
     """
     Convert the offset value in ticks to a quantized index.
     :param offset: The offset in ticks to convert.
@@ -26,8 +26,8 @@ def normalize_offset_ticks(offset: int, ticks_per_qn: int, start_at_zero=True,
     return int(round(normalized))
 
 
-def denormalize_offset_ticks(norm_offset: int, ticks_per_qn: int, start_at_zero=True,
-                             norm_resolution: int = OFFSET_TICKS_SIZE) -> int:
+def decode_offset_ticks(norm_offset: int, ticks_per_qn: int, start_at_zero=True,
+                        norm_resolution: int = OFFSET_TICKS_SIZE) -> int:
     """
     Convert a quantized index back to the offset in ticks.
     :param norm_offset: The quantized offset index.

@@ -10,7 +10,7 @@ HALF_VELOCITY_SIZE = VELOCITY_SIZE // 2
 QUARTER_VELOCITY_SIZE = VELOCITY_SIZE // 4
 EIGHTH_VELOCITY_SIZE = VELOCITY_SIZE // 8
 
-def normalize_velocity(velocity: float, resolution: int = VELOCITY_SIZE) -> int:
+def encode_velocity(velocity: float, resolution: int = VELOCITY_SIZE) -> int:
     """
     Convert the dna velocity value to standard MIDI velocity range.
     :param velocity: The velocity value to convert (expected in range [0, 1]).

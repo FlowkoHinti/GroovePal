@@ -1,3 +1,4 @@
-# data preparation like cut out end fills
 # order data into directories
-# train val test splits
+# clean up
+# prepare for json extraction
+# train val test splits?
