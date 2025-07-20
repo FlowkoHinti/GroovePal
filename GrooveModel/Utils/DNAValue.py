@@ -1,4 +1,6 @@
-from enum import IntEnum
+from enum import IntEnum, auto
+
+from GrooveModel.Utils.SpecialTokens import SPECIAL_TOKEN_SIZE
 
 
 class InstrumentValues(IntEnum):
@@ -10,16 +12,19 @@ class InstrumentValues(IntEnum):
     Ride = 1 << 4
     Crash = 1 << 5
 
-class RemappedInstrumentValues(IntEnum):
-    Rest = 0
-    Kick = 1
-    Snare = 2
-    Toms = 3
-    HiHat = 4
-    Ride = 5
-    Crash = 6
 
-DNA_VALUE_SIZE = sum([value.value for value in InstrumentValues]) + 1
+class RemappedInstrumentValues(IntEnum):
+    Rest = SPECIAL_TOKEN_SIZE
+    Kick = auto()
+    Snare = auto()
+    Toms = auto()
+    HiHat = auto()
+    Ride = auto()
+    Crash = auto()
+
+
+DNA_VALUE_TOKEN_SIZE = len(InstrumentValues) + SPECIAL_TOKEN_SIZE
+
 
 def get_dna_instruments_list(value) -> list[InstrumentValues]:
     """

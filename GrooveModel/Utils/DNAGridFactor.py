@@ -1,4 +1,7 @@
-from enum import IntEnum
+from enum import IntEnum, auto
+
+from GrooveModel.Utils.SpecialTokens import SPECIAL_TOKEN_SIZE
+
 
 class GridFactors(IntEnum):
     Quarter = 1
@@ -7,14 +10,17 @@ class GridFactors(IntEnum):
     EighthTriplet = 3
     SixteenthTriplet = 6
 
-class RemappedGridFactors(IntEnum):
-    Quarter = 0
-    Eighth = 1
-    Sixteenth = 2
-    EighthTriplet = 3
-    SixteenthTriplet = 4
 
-GRID_FACTORS_SIZE = sum([value.value for value in GridFactors]) + 1
+class RemappedGridFactors(IntEnum):
+    Quarter = SPECIAL_TOKEN_SIZE
+    Eighth = auto()
+    Sixteenth = auto()
+    EighthTriplet = auto()
+    SixteenthTriplet = auto()
+
+
+GRID_FACTOR_TOKEN_SIZE = len(GridFactors) + SPECIAL_TOKEN_SIZE
+
 
 def encode_grid_factor(grid_factor) -> RemappedGridFactors:
     dna_grid_factor = GridFactors(grid_factor).name

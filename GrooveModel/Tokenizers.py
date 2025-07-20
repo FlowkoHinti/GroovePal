@@ -45,7 +45,7 @@ class DNAToken:
             self.TimeSignature,
             self.NumberOfBars,
             self.TicksPerQuarter,
-        ], dtype=torch.uint16)
+        ], dtype=torch.int)
 
     @classmethod
     def from_tensor(cls, tensor: torch.Tensor) -> 'DNAToken':

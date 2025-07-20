@@ -1,46 +1,46 @@
-import numpy as np
+from GrooveModel.Utils.SpecialTokens import SPECIAL_TOKEN_SIZE
 
-OFFSET_TICKS_SIZE = 960
+OFFSET_TICKS_RESOLUTION = 960  # usable steps excluding special tokens (+-480 ticks)
+OFFSET_TOKEN_SIZE = OFFSET_TICKS_RESOLUTION + SPECIAL_TOKEN_SIZE  # total size including special tokens
+
 
 def encode_offset_ticks(offset: int, ticks_per_qn: int, start_at_zero=True,
-                        resolution: int = OFFSET_TICKS_SIZE) -> int:
+                        resolution: int = OFFSET_TICKS_RESOLUTION) -> int:
     """
-    Convert the offset value in ticks to a quantized index.
+    Convert the offset value in ticks to a quantized index, offset by SPECIAL_TOKEN_SIZE.
     :param offset: The offset in ticks to convert.
     :param ticks_per_qn: Ticks per quarter note.
     :param start_at_zero: If true, shift the range to start at zero.
-    :param resolution: Number of steps in the offset quantization.
-    :return: The quantized offset as an integer.
+    :param resolution: Number of steps in the offset quantization (excluding special tokens).
+    :return: The quantized offset as an integer (including SPECIAL_TOKEN_SIZE shift).
     """
-    # Clamp the offset to the maximum allowed range
     max_offset = ticks_per_qn
     offset = max(-max_offset, min(max_offset, offset))
 
-    # Map offset from [-ticks_per_qn, +ticks_per_qn] to [0, resolution - 1]
     if start_at_zero:
         normalized = ((offset + ticks_per_qn) / (2 * ticks_per_qn)) * (resolution - 1)
     else:
-        # Map to [-resolution//2, +resolution//2]
         normalized = (offset / ticks_per_qn) * (resolution // 2)
 
-    return int(round(normalized))
+    quantized_index = int(round(normalized))
+    return quantized_index + SPECIAL_TOKEN_SIZE
 
 
 def decode_offset_ticks(norm_offset: int, ticks_per_qn: int, start_at_zero=True,
-                        norm_resolution: int = OFFSET_TICKS_SIZE) -> int:
+                        resolution: int = OFFSET_TICKS_RESOLUTION) -> int:
     """
-    Convert a quantized index back to the offset in ticks.
-    :param norm_offset: The quantized offset index.
+    Convert a quantized index (with special token offset) back to the offset in ticks.
+    :param norm_offset: The quantized offset index including SPECIAL_TOKEN_SIZE offset.
     :param ticks_per_qn: Ticks per quarter note.
     :param start_at_zero: Whether the index range starts at zero or is centered.
-    :param norm_resolution: Number of steps in the offset quantization.
-    :return: The offset in ticks.
+    :param resolution: Number of quantization steps used (excluding special tokens).
+    :return: The decoded offset in ticks.
     """
+    quantized_index = norm_offset - SPECIAL_TOKEN_SIZE
+
     if start_at_zero:
-        # Map back from [0, resolution - 1] to [-ticks_per_qn, +ticks_per_qn]
-        offset = ((norm_offset / (norm_resolution - 1)) * 2 * ticks_per_qn) - ticks_per_qn
+        offset = ((quantized_index / (resolution - 1)) * 2 * ticks_per_qn) - ticks_per_qn
     else:
-        # Map back from [-resolution//2, +resolution//2] to [-ticks_per_qn, +ticks_per_qn]
-        offset = (norm_offset / (norm_resolution // 2)) * ticks_per_qn
+        offset = (quantized_index / (resolution // 2)) * ticks_per_qn
 
     return int(round(offset))

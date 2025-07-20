@@ -5,7 +5,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from GrooveModel import Tokenizers
-from GrooveModel.CollateFunctions import dna_collate_fn
+from GrooveModel.CollateFunctions import pad_pack_batch
 from GrooveModel.Datasets import DNANextTokenDataset
 
 # Paths
@@ -55,7 +55,7 @@ def test_collate_fn_padding_and_alignment():
     target_2 = torch.stack([tok(5)])
 
     batch = [(input_1, target_1), (input_2, target_2)]
-    padded_inputs, padded_targets, packed_inputs, lengths = dna_collate_fn(batch)
+    padded_inputs, padded_targets, packed_inputs, lengths = pad_pack_batch(batch)
 
     # Check lengths
     assert torch.equal(lengths, torch.tensor([2, 1]))
@@ -70,7 +70,7 @@ def test_collate_fn_padding_and_alignment():
 def test_collate_fn_with_real_data():
     bs = 16
     dataset = DNANextTokenDataset(SimpleNamespace(**ds_conf), 'train', tokenizer=Tokenizers.MultiDimDNATokenizer)
-    loader = DataLoader(dataset, batch_size=bs, collate_fn=dna_collate_fn)
+    loader = DataLoader(dataset, batch_size=bs, collate_fn=pad_pack_batch)
 
     batch = next(iter(loader))  # One full batch
 

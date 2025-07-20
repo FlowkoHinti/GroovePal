@@ -50,7 +50,7 @@ def test_embedding_output_shape(embedding_module):
 
 @pytest.fixture
 def pos_encoder():
-    return BeatPositionalEncoding(d_model=32, max_len=100)
+    return BeatPositionalEncoding(embedding_dim=32, max_len=100)
 
 def test_positional_encoding_adds_embedding(pos_encoder):
     batch_size = 2

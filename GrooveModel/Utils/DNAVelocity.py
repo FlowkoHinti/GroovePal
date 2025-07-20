@@ -1,28 +1,35 @@
 from math import floor
+from GrooveModel.Utils.SpecialTokens import SPECIAL_TOKEN_SIZE
 
-# According to MIDI standard, the velocity range is from 0 to 127.
 VELOCITY_MIN = 0
 VELOCITY_MAX = 127
-VELOCITY_SIZE = (VELOCITY_MAX - VELOCITY_MIN) + 1
+VELOCITY_RESOLUTION = (VELOCITY_MAX - VELOCITY_MIN) + 1  # 128
+VELOCITY_TOKEN_SIZE = VELOCITY_RESOLUTION + SPECIAL_TOKEN_SIZE
 
-# Reduced velocity ranges
-HALF_VELOCITY_SIZE = VELOCITY_SIZE // 2
-QUARTER_VELOCITY_SIZE = VELOCITY_SIZE // 4
-EIGHTH_VELOCITY_SIZE = VELOCITY_SIZE // 8
 
-def encode_velocity(velocity: float, resolution: int = VELOCITY_SIZE) -> int:
+def encode_velocity(velocity: float, resolution: int = VELOCITY_RESOLUTION) -> int:
     """
-    Convert the dna velocity value to standard MIDI velocity range.
-    :param velocity: The velocity value to convert (expected in range [0, 1]).
-    :param resolution: Number of velocity steps (default 128 for MIDI).
-    :return: The quantized velocity as an integer (0 to resolution - 1).
+    Quantize a velocity value in [0, 1] into a discrete velocity index with special token offset.
+    :param velocity: Normalized float in [0, 1].
+    :param resolution: Number of steps (default 128).
+    :return: Encoded velocity index with SPECIAL_TOKEN_SIZE offset.
     """
-
     dna_step = 1 / (resolution - 1)
     steps = floor(velocity / dna_step)
     remainder = velocity % dna_step
     if remainder >= dna_step / 2:
         steps += 1
 
-    # Clamp to maximum valid step
-    return min(steps, resolution - 1)
+    steps = min(steps, resolution - 1)
+    return steps + SPECIAL_TOKEN_SIZE
+
+
+def decode_velocity(encoded_velocity: int, resolution: int = VELOCITY_RESOLUTION) -> float:
+    """
+    Decode a velocity index back into a normalized [0, 1] float.
+    :param encoded_velocity: Encoded velocity index including SPECIAL_TOKEN_SIZE offset.
+    :param resolution: Number of steps used (default 128).
+    :return: Normalized float velocity in [0, 1].
+    """
+    index = encoded_velocity - SPECIAL_TOKEN_SIZE
+    return index / (resolution - 1)
