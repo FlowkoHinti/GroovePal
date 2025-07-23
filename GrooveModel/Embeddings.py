@@ -17,7 +17,8 @@ class MultiDimDNAEmbedding(nn.Module):
             config.embeddings.offsets.embedding_dim,
             config.embeddings.time_signature.embedding_dim,
             config.embeddings.grid_factor.embedding_dim,
-            config.embeddings.bpm.embedding_dim
+            config.embeddings.bpm.embedding_dim,
+
         ])
 
         self.instrument_embedding = nn.Embedding(

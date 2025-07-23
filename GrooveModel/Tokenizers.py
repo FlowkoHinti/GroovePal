@@ -57,6 +57,10 @@ def tokens_to_tensor(tokens: list[DNAToken]) -> torch.Tensor:
 def tensor_to_tokens(tensor: torch.Tensor) -> list[DNAToken]:
     return [DNAToken.from_tensor(row) for row in tensor]
 
+# TODO: add new encode functions
+# TODO: Offset = +- ticks p gridUnit
+# TODO:
+
 class MultiDimDNATokenizer:
     @staticmethod
     def tokenize(song_json: dict, trim_leading_empty_measures: bool = True, absolute_grid_units: bool = False) -> list[DNAToken]:
