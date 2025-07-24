@@ -1,5 +1,7 @@
 import unittest
 
+from GrooveModel.Utils.BeatUnit import BEAT_UNIT_TOKEN_SIZE_RELATIVE, MAX_GRID_UNITS_PER_BAR, MAX_GRID_UNITS_PER_SONG, \
+    BEAT_UNIT_TOKEN_SIZE_ABSOLUTE, encode_beat_unit, decode_beat_unit
 from GrooveModel.Utils.BeatsPerMinute import encode_bpm, decode_bpm, BPM_RESOLUTION, BPM_TOKEN_SIZE
 from GrooveModel.Utils.DNAGridFactor import GridFactors, RemappedGridFactors, encode_grid_factor, decode_grid_factor, \
     GRID_FACTOR_TOKEN_SIZE
@@ -100,41 +102,42 @@ class TestGridFactorEncoding(unittest.TestCase):
 class TestOffsetEncoding(unittest.TestCase):
 
     def setUp(self):
-        self.ticks_per_qn = 480  # standard MIDI resolution
+        # Now using ticks per *grid unit*, not per quarter note
+        self.ticks_per_grid_unit = 120
 
     def test_offset_encoding_within_bounds(self):
-        test_cases = [-480, -240, 0, 240, 480]
+        test_cases = [-120, -60, 0, 60, 120]
         for offset in test_cases:
-            encoded = encode_offset_ticks(offset, self.ticks_per_qn)
+            encoded = encode_offset_ticks(offset, self.ticks_per_grid_unit)
             self.assertIsInstance(encoded, int)
             self.assertGreaterEqual(encoded, SPECIAL_TOKEN_SIZE)
             self.assertLess(encoded, OFFSET_TOKEN_SIZE)
 
     def test_offset_encoding_roundtrip(self):
-        test_cases = [-480, -300, -1, 0, 1, 300, 480]
+        test_cases = [-120, -75, -1, 0, 1, 75, 120]
         for offset in test_cases:
-            encoded = encode_offset_ticks(offset, self.ticks_per_qn)
-            decoded = decode_offset_ticks(encoded, self.ticks_per_qn)
-            self.assertAlmostEqual(decoded, offset, delta=1)  # Allow ±1 rounding error
+            encoded = encode_offset_ticks(offset, self.ticks_per_grid_unit)
+            decoded = decode_offset_ticks(encoded, self.ticks_per_grid_unit)
+            self.assertAlmostEqual(decoded, offset, delta=1)  # Allow ±1 tick rounding error
 
     def test_offset_encoding_clamping(self):
-        # Inputs outside the allowed tick range should be clamped
-        too_small = encode_offset_ticks(-999, self.ticks_per_qn)
-        too_large = encode_offset_ticks(999, self.ticks_per_qn)
-        min_expected = encode_offset_ticks(-480, self.ticks_per_qn)
-        max_expected = encode_offset_ticks(480, self.ticks_per_qn)
+        # Values beyond ±ticks_per_grid_unit should be clamped
+        too_small = encode_offset_ticks(-999, self.ticks_per_grid_unit)
+        too_large = encode_offset_ticks(999, self.ticks_per_grid_unit)
+        min_expected = encode_offset_ticks(-self.ticks_per_grid_unit, self.ticks_per_grid_unit)
+        max_expected = encode_offset_ticks(self.ticks_per_grid_unit, self.ticks_per_grid_unit)
         self.assertEqual(too_small, min_expected)
         self.assertEqual(too_large, max_expected)
 
     def test_offset_encoding_start_at_zero_false(self):
-        # Test with centering logic (not starting at zero)
-        offset = 240
-        encoded = encode_offset_ticks(offset, self.ticks_per_qn, start_at_zero=False)
-        decoded = decode_offset_ticks(encoded, self.ticks_per_qn, start_at_zero=False)
+        # When start_at_zero is False, center the range around 0
+        offset = 60
+        encoded = encode_offset_ticks(offset, self.ticks_per_grid_unit, start_at_zero=False)
+        decoded = decode_offset_ticks(encoded, self.ticks_per_grid_unit, start_at_zero=False)
         self.assertAlmostEqual(decoded, offset, delta=1)
 
     def test_offset_tokens_size(self):
-        # Ensure total token count includes specials
+        # Confirm size of total token space includes special tokens
         self.assertEqual(OFFSET_TOKEN_SIZE, OFFSET_TICKS_RESOLUTION + SPECIAL_TOKEN_SIZE)
 
 class TestBPMEncoding(unittest.TestCase):
@@ -252,6 +255,47 @@ class TestTimeSignatureEncoding(unittest.TestCase):
         with self.assertRaises(ValueError):
             encode_time_signature(4, 0)
 
+class TestBeatUnitEncoding(unittest.TestCase):
+
+    def test_constants(self):
+        self.assertEqual(BEAT_UNIT_TOKEN_SIZE_RELATIVE, MAX_GRID_UNITS_PER_BAR + SPECIAL_TOKEN_SIZE)
+        self.assertEqual(BEAT_UNIT_TOKEN_SIZE_ABSOLUTE, MAX_GRID_UNITS_PER_SONG + SPECIAL_TOKEN_SIZE)
+
+    def test_encode_decode_relative(self):
+        for pos in [0, 1, 35, MAX_GRID_UNITS_PER_BAR - 1]:
+            token = encode_beat_unit(pos, absolute=False)
+            decoded = decode_beat_unit(token, absolute=False)
+            self.assertEqual(decoded, pos)
+
+    def test_encode_decode_absolute(self):
+        for pos in [0, 10, 127, MAX_GRID_UNITS_PER_SONG - 1]:
+            token = encode_beat_unit(pos, absolute=True)
+            decoded = decode_beat_unit(token, absolute=True)
+            self.assertEqual(decoded, pos)
+
+    def test_relative_token_range(self):
+        token = encode_beat_unit(0, absolute=False)
+        self.assertEqual(token, SPECIAL_TOKEN_SIZE)
+        token = encode_beat_unit(MAX_GRID_UNITS_PER_BAR - 1, absolute=False)
+        self.assertEqual(token, SPECIAL_TOKEN_SIZE + MAX_GRID_UNITS_PER_BAR - 1)
+
+    def test_absolute_token_range(self):
+        token = encode_beat_unit(0, absolute=True)
+        self.assertEqual(token, SPECIAL_TOKEN_SIZE)
+        token = encode_beat_unit(MAX_GRID_UNITS_PER_SONG - 1, absolute=True)
+        self.assertEqual(token, SPECIAL_TOKEN_SIZE + MAX_GRID_UNITS_PER_SONG - 1)
+
+    def test_out_of_bounds_relative(self):
+        with self.assertRaises(ValueError):
+            encode_beat_unit(MAX_GRID_UNITS_PER_BAR, absolute=False)
+        with self.assertRaises(ValueError):
+            decode_beat_unit(SPECIAL_TOKEN_SIZE + MAX_GRID_UNITS_PER_BAR, absolute=False)
+
+    def test_out_of_bounds_absolute(self):
+        with self.assertRaises(ValueError):
+            encode_beat_unit(MAX_GRID_UNITS_PER_SONG, absolute=True)
+        with self.assertRaises(ValueError):
+            decode_beat_unit(SPECIAL_TOKEN_SIZE + MAX_GRID_UNITS_PER_SONG, absolute=True)
 
 if __name__ == '__main__':
     unittest.main()
