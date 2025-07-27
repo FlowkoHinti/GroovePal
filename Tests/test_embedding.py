@@ -1,47 +1,57 @@
 import torch
 import pytest
-from GrooveModel.Embeddings import MultiDimDNAEmbedding, BeatPositionalEncoding
+from omegaconf import OmegaConf
+
+from GrooveModel.Embeddings import MultiTaskDNAEmbedding, BeatPositionalEncoding
 
 
-class DummyConfig:
-    class embeddings:
-        class instruments:
-            vocab_size = 10
-            embedding_dim = 8
-        class velocities:
-            vocab_size = 128
-            embedding_dim = 4
-        class offsets:
-            vocab_size = 16
-            embedding_dim = 6
-        class time_signature:
-            vocab_size = 12
-            embedding_dim = 3
-        class grid_factor:
-            vocab_size = 10
-            embedding_dim = 5
-        class bpm:
-            vocab_size = 256
-            embedding_dim = 2
+embedding_config_string = f"""
+instruments:
+    embedding_dim: 8
+velocities:
+    embedding_dim: 4
+offsets:
+    embedding_dim: 4
+time_signature:
+    embedding_dim: 4
+grid_factor:
+    embedding_dim: 8
+bpm:
+    embedding_dim: 6
+beat_units:
+    embedding_dim: 8
+    absolute_beat_units: False
+"""
+
+embedding_config = OmegaConf.create(embedding_config_string)
 
 @pytest.fixture
 def embedding_module():
-    return MultiDimDNAEmbedding(DummyConfig())
+    return MultiTaskDNAEmbedding(embedding_config)
 
 def test_embedding_output_shape(embedding_module):
     batch_size = 4
     seq_len = 8
-    num_features = 9  # full token structure
-    dummy_input = torch.randint(0, 10, (batch_size, seq_len, num_features))
+    num_features = 7  # full token structure
+    dummy_input = torch.cat([
+    torch.randint(1, 8, (batch_size, seq_len, 1)),   # instrument
+    torch.randint(1, 129, (batch_size, seq_len, 1)), # velocity
+    torch.randint(1, 73, (batch_size, seq_len, 1)),  # beat_unit
+    torch.randint(1, 121, (batch_size, seq_len, 1)),  # offset
+    torch.randint(1, 5, (batch_size, seq_len, 1)),  # grid
+    torch.randint(1, 301, (batch_size, seq_len, 1)), # bpm
+    torch.randint(1, 11, (batch_size, seq_len, 1)),  # time_signature
+    ], dim=2)
 
     output = embedding_module(dummy_input)
     expected_dim = (
-        DummyConfig.embeddings.instruments.embedding_dim +
-        DummyConfig.embeddings.velocities.embedding_dim +
-        DummyConfig.embeddings.offsets.embedding_dim +
-        DummyConfig.embeddings.time_signature.embedding_dim +
-        DummyConfig.embeddings.grid_factor.embedding_dim +
-        DummyConfig.embeddings.bpm.embedding_dim
+        embedding_module.instrument_embedding.embedding_dim +
+        embedding_module.velocity_embedding.embedding_dim +
+        embedding_module.beat_unit_embedding.embedding_dim +
+        embedding_module.offset_embedding.embedding_dim +
+        embedding_module.time_signature_embedding.embedding_dim +
+        embedding_module.grid_embedding.embedding_dim +
+        embedding_module.bpm_embedding.embedding_dim
     )
 
     assert output.shape == (batch_size, seq_len, expected_dim)

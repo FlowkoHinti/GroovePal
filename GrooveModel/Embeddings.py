@@ -1,92 +1,101 @@
 import math
+from collections import OrderedDict
+from dataclasses import dataclass, field
+
 import torch
-
+from omegaconf import MISSING
 from torch import nn
-from omegaconf import DictConfig
 
+from Configs import MAX_SEQUENCE_LENGTH
 from GrooveModel.Utils.SpecialTokens import SpecialTokens
+from GrooveModel.Vocab import INSTRUMENT_VOCAB_SIZE, VELOCITY_VOCAB_SIZE, OFFSET_VOCAB_SIZE, TIME_SIGNATURE_VOCAB_SIZE, \
+    GRID_FACTOR_VOCAB_SIZE, BPM_VOCAB_SIZE, BEAT_UNIT_ABSOLUTE_VOCAB_SIZE, BEAT_UNIT_RELATIVE_VOCAB_SIZE
 
 
-class MultiDimDNAEmbedding(nn.Module):
-    def __init__(self, config: DictConfig):
-        super(MultiDimDNAEmbedding, self).__init__()
+@dataclass
+class SubEmbeddingConfig:
+    embedding_dim: int = MISSING
 
-        self.embedding_dim = sum([
-            config.embeddings.instruments.embedding_dim,
-            config.embeddings.velocities.embedding_dim,
-            config.embeddings.offsets.embedding_dim,
-            config.embeddings.time_signature.embedding_dim,
-            config.embeddings.grid_factor.embedding_dim,
-            config.embeddings.bpm.embedding_dim,
 
+@dataclass
+class BeatUnitsConfig:
+    embedding_dim: int = MISSING
+    absolute_beat_units: bool = MISSING
+
+
+@dataclass
+class MultiTaskDNAEmbeddingConfig:
+    instruments: SubEmbeddingConfig = field(default_factory=SubEmbeddingConfig)
+    velocities: SubEmbeddingConfig = field(default_factory=SubEmbeddingConfig)
+    offsets: SubEmbeddingConfig = field(default_factory=SubEmbeddingConfig)
+    time_signature: SubEmbeddingConfig = field(default_factory=SubEmbeddingConfig)
+    grid_factor: SubEmbeddingConfig = field(default_factory=SubEmbeddingConfig)
+    bpm: SubEmbeddingConfig = field(default_factory=SubEmbeddingConfig)
+    beat_units: BeatUnitsConfig = field(default_factory=BeatUnitsConfig)
+    normalize_embeddings: bool = False
+
+
+class MultiTaskDNAEmbedding(nn.Module):
+    def __init__(self, embedding_config: MultiTaskDNAEmbeddingConfig):
+        super(MultiTaskDNAEmbedding, self).__init__()
+
+        self.normalize_embedding_flag = embedding_config.normalize_embeddings
+        self.absolute_beat_units = embedding_config.beat_units.absolute_beat_units
+
+        self.sub_embeddings = nn.ModuleDict(OrderedDict({
+            'instrument': nn.Embedding(INSTRUMENT_VOCAB_SIZE, embedding_config.instruments.embedding_dim,
+                                       padding_idx=SpecialTokens.PAD),
+            'velocity': nn.Embedding(VELOCITY_VOCAB_SIZE, embedding_config.velocities.embedding_dim,
+                                     padding_idx=SpecialTokens.PAD),
+            'beat_unit': nn.Embedding(
+                BEAT_UNIT_ABSOLUTE_VOCAB_SIZE if self.absolute_beat_units else BEAT_UNIT_RELATIVE_VOCAB_SIZE,
+                embedding_config.beat_units.embedding_dim,
+                padding_idx=SpecialTokens.PAD
+            ),
+            'offset': nn.Embedding(OFFSET_VOCAB_SIZE, embedding_config.offsets.embedding_dim,
+                                   padding_idx=SpecialTokens.PAD),
+            'grid': nn.Embedding(GRID_FACTOR_VOCAB_SIZE, embedding_config.grid_factor.embedding_dim,
+                                 padding_idx=SpecialTokens.PAD),
+            'bpm': nn.Embedding(BPM_VOCAB_SIZE, embedding_config.bpm.embedding_dim, padding_idx=SpecialTokens.PAD),
+            'time_signature': nn.Embedding(TIME_SIGNATURE_VOCAB_SIZE, embedding_config.time_signature.embedding_dim,
+                                           padding_idx=SpecialTokens.PAD)
+        }))
+
+        # Store embedding dimension as integer attribute
+        self._embedding_dim = sum(e.embedding_dim for e in [
+            embedding_config.instruments,
+            embedding_config.velocities,
+            embedding_config.beat_units,
+            embedding_config.offsets,
+            embedding_config.time_signature,
+            embedding_config.grid_factor,
+            embedding_config.bpm
         ])
 
-        self.instrument_embedding = nn.Embedding(
-            config.embeddings.instruments.vocab_size,
-            config.embeddings.instruments.embedding_dim,
-            padding_idx=SpecialTokens.PAD
-        )
+    @property
+    def embedding_dim(self) -> int:
+        return self._embedding_dim
 
-        self.velocity_embedding = nn.Embedding(
-            config.embeddings.velocities.vocab_size,
-            config.embeddings.velocities.embedding_dim,
-            padding_idx=SpecialTokens.PAD
-        )
-
-        self.offset_embedding = nn.Embedding(
-            config.embeddings.offsets.vocab_size,
-            config.embeddings.offsets.embedding_dim,
-            padding_idx=SpecialTokens.PAD
-        )
-
-        self.time_signature_embedding = nn.Embedding(
-            config.embeddings.time_signature.vocab_size,
-            config.embeddings.time_signature.embedding_dim,
-            padding_idx=SpecialTokens.PAD
-        )
-
-        self.grid_embedding = nn.Embedding(
-            config.embeddings.grid_factor.vocab_size,
-            config.embeddings.grid_factor.embedding_dim,
-            padding_idx=SpecialTokens.PAD
-        )
-
-        self.bpm_embedding = nn.Embedding(
-            config.embeddings.bpm.vocab_size,
-            config.embeddings.bpm.embedding_dim,
-            padding_idx=SpecialTokens.PAD
-        )
+    def normalize_embedding(self, embedding: torch.Tensor) -> torch.Tensor:
+        if self.normalize_embedding_flag:
+            return nn.functional.layer_norm(embedding, embedding.shape[-1:])
+        return embedding
 
     def forward(self, token: torch.Tensor):
-        """
-        token: Tensor of shape (batch_size, seq_len, 9)
-        Each token has 9 fields, ordered as:
-        [instrument, velocity, beat_unit, beat_unit_offset, grid_factor, bpm, time_signature, number_of_bars, ticks_p_qn]
-        """
+        # Assume fixed order of features in token shape: (batch, seq, feature_index)
+        feature_names = list(self.sub_embeddings.keys())
 
-        instrument_token_embedding = self.instrument_embedding(token[:, :, 0])
-        velocity_token_embedding = self.velocity_embedding(token[:, :, 1])
-        offset_token_embedding = self.offset_embedding(token[:, :, 3])
-        grid_token_embedding = self.grid_embedding(token[:, :, 4])
-        bpm_token_embedding = self.bpm_embedding(token[:, :, 5])
-        time_signature_token_embedding = self.time_signature_embedding(token[:, :, 6])
+        embeddings = [
+            self.sub_embeddings[name](token[:, :, i])
+            for i, name in enumerate(feature_names)
+        ]
 
-        # Concatenate embeddings across the last dimension
-        token_embedding = torch.cat([
-            instrument_token_embedding,
-            velocity_token_embedding,
-            offset_token_embedding,
-            time_signature_token_embedding,
-            grid_token_embedding,
-            bpm_token_embedding
-        ], dim=-1)
-
-        return token_embedding
-
+        token_embedding = torch.cat(embeddings, dim=-1)
+        return self.normalize_embedding(token_embedding)
 
 
 class BeatPositionalEncoding(nn.Module):
-    def __init__(self, embedding_dim, max_len=10000):
+    def __init__(self, embedding_dim, max_len=MAX_SEQUENCE_LENGTH):
         super().__init__()
         self.embedding_dim = embedding_dim
 
