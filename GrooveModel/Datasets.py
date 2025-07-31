@@ -1,4 +1,6 @@
 import json
+import os
+from os import PathLike
 
 from omegaconf import DictConfig
 from torch.utils.data import Dataset
@@ -11,15 +13,21 @@ def load_dna_json(dna_path: str):
     with open(dna_path, 'rb') as f:
         return json.load(f)
 
+def get_dna_json_path(dna_path: PathLike):
+    """Find the first DNA JSON file."""
+    json_files = [f for f in os.listdir(dna_path) if f.endswith('.json')]
+    return json_files[0]
+
 
 class DNANextTokenDataset(Dataset):
-    def __init__(self, cfg: DictConfig, dataset_type: str, transform=None, tokenizer=None):
+    def __init__(self, cfg: DictConfig, split: str, transform=None, tokenizer=None):
         self.cfg = cfg
-        self.dataset_type = dataset_type
+        self.split = split
         self.transform = transform
         self.tokenizer = tokenizer
 
-        self.dnas = load_dna_json(cfg.dna_path)
+        dna_json = get_dna_json_path(cfg.dna_path / split)
+        self.dnas = load_dna_json(dna_json)
         self.convert_to_tensor = getattr(cfg, "convert_to_tensor", False)
 
     def __len__(self):

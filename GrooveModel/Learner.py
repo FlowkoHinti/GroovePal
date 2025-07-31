@@ -2,150 +2,156 @@
 # insert mask tokens into sequence and let model predict sequence without mask tokens I_mask -> I
 # teacher forcing can be a great optimisation as well
 # add loss / training function for the various setups
-from pathlib import Path
 
 import torch
-from torch import nn, optim
-from torch.utils.data import Dataset, DataLoader
-from tqdm import tqdm
+import torch.nn as nn
+import torch.optim as optim
+from dacite import from_dict, Config as DaciteConfig
+from omegaconf import DictConfig, OmegaConf
+from torch.utils.data import DataLoader
+from train_utils import run_training_loop
 
+from GrooveModel import Tokenizers, CollateFunctions
 from GrooveModel.Callbacks import CheckpointCallback, EarlyStoppingCallback, PlotLossCurvesCallback, \
     PlotMetricsCallback, LRLoggerCallback, GradientClippingCallback, EpochSummaryCallback, CallbackManager
+from GrooveModel.Datasets import DNANextTokenDataset
+from GrooveModel.Embeddings import MultiTaskDNAEmbeddingConfig
 from GrooveModel.LearnerState import LearnerState
+from GrooveModel.Models import MultiTaskDNAxLSTM, MultiTaskDNAModelConfig
 from GrooveModel.Utils.Logger import setup_logger
+from GrooveModel.Utils.SpecialTokens import SpecialTokens
+
 
 # LOOK AT xLSTM Experiments/main.py
-
 # add callbacks/metrics like in fastai
-
 # loss_fn = nn.CrossEntropyLoss(ignore_index=pad_token_id)
 
 
-class DummyTextDataset(Dataset):
-    def __init__(self, vocab_size=1000, num_samples=500, seq_len=30, num_classes=2):
-        self.data = [
-            (torch.randint(1, vocab_size, (seq_len,)), torch.randint(0, num_classes, (1,)).item())
-            for _ in range(num_samples)
+class MultiTaskDNALearner:
+    def __init__(self, config_path: str):
+        self.cfg: DictConfig = OmegaConf.load(config_path)
+        self.logger = setup_logger("MultiTaskDNALearner")
+        self.device = torch.device(self.cfg.train.device if torch.cuda.is_available() else "cpu")
+
+        self._setup_dataset()
+        self._setup_embedding()
+        self._setup_model()
+        self._setup_training_objects()
+        self._setup_callbacks()
+
+    def _setup_dataset(self):
+        ds_conf = self.cfg.dataset
+
+        self.train_dataset = DNANextTokenDataset(
+            ds_conf, split="train", tokenizer=Tokenizers.MultiTaskDNATokenizer
+        )
+        self.val_dataset = DNANextTokenDataset(
+            ds_conf, split="val", tokenizer=Tokenizers.MultiTaskDNATokenizer
+        )
+
+        self.train_loader = DataLoader(
+            self.train_dataset,
+            batch_size=self.cfg.train.batch_size,
+            shuffle=ds_conf.get("shuffle", True),
+            num_workers=ds_conf.get("num_workers", 4),
+            collate_fn=CollateFunctions.pad_truncate_batch
+        )
+
+        self.val_loader = DataLoader(
+            self.val_dataset,
+            batch_size=self.cfg.train.batch_size,
+            shuffle=False,
+            num_workers=ds_conf.get("num_workers", 4),
+            collate_fn=CollateFunctions.pad_truncate_batch
+        )
+
+    def _setup_embedding(self):
+        schema = OmegaConf.structured(MultiTaskDNAEmbeddingConfig())
+        self.embedding_config = OmegaConf.merge(schema, self.cfg.embedding)
+
+    def _setup_model(self):
+        cfg_omega = OmegaConf.merge(OmegaConf.structured(MultiTaskDNAModelConfig()), self.cfg.model)
+        model_config = from_dict(
+            MultiTaskDNAModelConfig,
+            OmegaConf.to_container(cfg_omega, resolve=True),
+            config=DaciteConfig(strict=True)
+        )
+
+        self.model = MultiTaskDNAxLSTM(model_config, self.embedding_config).to(self.device)
+
+    def _setup_training_objects(self):
+        self.optimizer = optim.Adam(self.model.parameters(), lr=self.cfg.train.initial_lr)
+
+        self.scheduler = optim.lr_scheduler.StepLR(
+            self.optimizer,
+            step_size=self.cfg.train.get("lr_step_size", 10),
+            gamma=self.cfg.train.get("lr_gamma", 0.5)
+        ) if self.cfg.train.get("use_scheduler", True) else None
+
+        self.criterion = nn.CrossEntropyLoss(ignore_index=SpecialTokens.PAD)
+
+        self.learner = LearnerState(
+            model=self.model,
+            optimizer=self.optimizer,
+            scheduler=self.scheduler,
+            train_loader=self.train_loader,
+            val_loader=self.val_loader,
+            criterion=self.criterion,
+            max_epochs=self.cfg.train.epochs,
+        )
+
+    def _setup_callbacks(self):
+        self.callbacks = [
+            CheckpointCallback(
+                save_dir=self.cfg.train.save_dir,
+                model_name=self.cfg.train.model_name,
+                logger=self.logger,
+                monitor=self.cfg.train.get("monitor", "val_loss"),
+                mode=self.cfg.train.get("mode", "min")
+            ),
+            EarlyStoppingCallback(
+                patience=self.cfg.train.get("patience", 5),
+                logger=self.logger
+            ),
+            PlotLossCurvesCallback(
+                save_dir=self.cfg.train.save_dir,
+                model_name=self.cfg.train.model_name,
+                logger=self.logger
+            ),
+            PlotMetricsCallback(
+                save_dir=self.cfg.train.save_dir,
+                model_name=self.cfg.train.model_name,
+                logger=self.logger
+            ),
+            LRLoggerCallback(logger=self.logger),
+            GradientClippingCallback(
+                max_norm=self.cfg.train.get("gradient_clip_norm", 1.0),
+                logger=self.logger
+            ),
+            EpochSummaryCallback(
+                save_dir=self.cfg.train.save_dir,
+                model_name=self.cfg.train.model_name,
+                logger=self.logger
+            )
         ]
+        self.callback_manager = CallbackManager(self.callbacks)
 
-    def __len__(self):
-        return len(self.data)
+    #TODO: FIX
+    def compute_loss(self, preds, targets):
+        return self.learner.criterion(preds, targets)
 
-    def __getitem__(self, idx):
-        x, y = self.data[idx]
-        return x, y
+    # TODO: FIX
+    def compute_metrics(self, preds, targets):
+        correct = (preds.argmax(dim=1) == targets).sum().item()
+        total = targets.size(0)
+        return {"accuracy": correct / total}
 
-
-class LSTMClassifier(nn.Module):
-    def __init__(self, vocab_size, embed_dim, hidden_dim, num_classes):
-        super().__init__()
-        self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=0)
-        self.lstm = nn.LSTM(embed_dim, hidden_dim, batch_first=True)
-        self.fc = nn.Linear(hidden_dim, num_classes)
-
-    def forward(self, x):
-        x = self.embedding(x)
-        _, (h_n, _) = self.lstm(x)
-        return self.fc(h_n[-1])
-
-
-def train_loop(learner: LearnerState, callback_manager, device):
-    callback_manager.call("on_train_begin", learner)
-
-    for epoch in range(learner.start_epoch, learner.max_epochs):
-        learner.epoch = epoch
-        callback_manager.call("on_epoch_begin", learner)
-
-        learner.model.train()
-        total_loss = 0
-
-        for batch_idx, (x, y) in enumerate(tqdm(learner.train_loader, desc=f"Epoch {epoch + 1}")):
-            learner._current_batch = batch_idx
-            callback_manager.call("on_batch_begin", learner)
-
-            x, y = x.to(device), y.to(device)
-            learner.optimizer.zero_grad()
-            preds = learner.model(x)
-            loss = learner.criterion(preds, y)
-            loss.backward()
-            learner.optimizer.step()
-
-            total_loss += loss.item()
-            callback_manager.call("on_batch_end", learner)
-
-        learner.train_loss = total_loss / len(learner.train_loader)
-
-        # Validation
-        learner.model.eval()
-        total_val_loss = 0
-        correct = 0
-        total = 0
-
-        with torch.no_grad():
-            for x, y in learner.val_loader:
-                x, y = x.to(device), y.to(device)
-                preds = learner.model(x)
-                loss = learner.criterion(preds, y)
-                total_val_loss += loss.item()
-                correct += (preds.argmax(dim=1) == y).sum().item()
-                total += y.size(0)
-
-        learner.val_loss = total_val_loss / len(learner.val_loader)
-        learner.metrics['accuracy'] = correct / total
-
-        if learner.scheduler:
-            learner.scheduler.step()
-
-        callback_manager.call("on_epoch_end", learner)
-
-        if callback_manager.state.get("early_stop"):
-            logger.warning("Early stopping triggered.")
-            break
-
-    callback_manager.call("on_train_end", learner)
-
-BASE_PATH = Path(__file__).parent.parent
-MODEL_DIR = BASE_PATH / "Models"
-
-#setup logger
-logger = setup_logger(name='TrainerLogger')
-
-# Model and training setup
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-logger.info(f"Using device: {device}")
-
-vocab_size = 1000
-model = LSTMClassifier(vocab_size, embed_dim=64, hidden_dim=128, num_classes=2).to(device)
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
-scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
-criterion = nn.CrossEntropyLoss()
-
-train_loader = DataLoader(DummyTextDataset(), batch_size=32, shuffle=True)
-val_loader = DataLoader(DummyTextDataset(), batch_size=32)
-
-# Trainer state
-learner = LearnerState(
-    model=model,
-    optimizer=optimizer,
-    scheduler=scheduler,
-    train_loader=train_loader,
-    val_loader=val_loader,
-    criterion=criterion,
-    max_epochs=10
-)
-
-# Callbacks
-callbacks = [
-    CheckpointCallback(save_dir=MODEL_DIR, model_name="lstm", logger=logger),
-    EarlyStoppingCallback(patience=3, logger=logger),
-    PlotLossCurvesCallback(save_dir=MODEL_DIR, model_name="lstm", logger=logger),
-    PlotMetricsCallback(save_dir=MODEL_DIR, model_name="lstm", logger=logger, metric_colors={"accuracy": "green"}),
-    LRLoggerCallback(logger=logger),
-    GradientClippingCallback(max_norm=1.0, logger=logger),
-    EpochSummaryCallback(save_dir=MODEL_DIR, model_name="lstm", logger=logger)
-]
-
-manager = CallbackManager(callbacks)
-
-# Start training
-train_loop(learner, manager, device)
+    def train(self):
+        run_training_loop(
+            learner=self.learner,
+            callback_manager=self.callback_manager,
+            device=self.device,
+            compute_loss_fn=self.compute_loss,
+            compute_metrics_fn=self.compute_metrics,
+            logger=self.logger
+        )

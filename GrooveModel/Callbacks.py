@@ -337,7 +337,7 @@ class PlotMetricsCallback(Callback):
             png_path = os.path.join(self.plot_dir, f"{metric}_curve.png")
             svg_path = os.path.join(self.plot_dir, f"{metric}_curve.svg")
 
-            plt.savefig(svg_path, format="png", bbox_inches="tight")
+            plt.savefig(png_path, format="png", bbox_inches="tight")
             plt.savefig(svg_path, format="svg", bbox_inches="tight")
             plt.close()
 
