@@ -9,7 +9,7 @@ import torch.optim as optim
 from dacite import from_dict, Config as DaciteConfig
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
-from train_utils import run_training_loop
+
 
 from GrooveModel import Tokenizers, CollateFunctions
 from GrooveModel.Callbacks import CheckpointCallback, EarlyStoppingCallback, PlotLossCurvesCallback, \
@@ -18,18 +18,15 @@ from GrooveModel.Datasets import DNANextTokenDataset
 from GrooveModel.Embeddings import MultiTaskDNAEmbeddingConfig
 from GrooveModel.LearnerState import LearnerState
 from GrooveModel.Models import MultiTaskDNAxLSTM, MultiTaskDNAModelConfig
+from GrooveModel.TrainLoop import run_training_loop
 from GrooveModel.Utils.Logger import setup_logger
 from GrooveModel.Utils.SpecialTokens import SpecialTokens
 
 
-# LOOK AT xLSTM Experiments/main.py
-# add callbacks/metrics like in fastai
-# loss_fn = nn.CrossEntropyLoss(ignore_index=pad_token_id)
-
 
 class MultiTaskDNALearner:
-    def __init__(self, config_path: str):
-        self.cfg: DictConfig = OmegaConf.load(config_path)
+    def __init__(self, cfg: DictConfig):
+        self.cfg = cfg
         self.logger = setup_logger("MultiTaskDNALearner")
         self.device = torch.device(self.cfg.train.device if torch.cuda.is_available() else "cpu")
 

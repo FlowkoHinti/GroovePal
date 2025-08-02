@@ -54,7 +54,7 @@ class MultiTaskDNAEmbedding(nn.Module):
             ),
             'offset': nn.Embedding(OFFSET_VOCAB_SIZE, embedding_config.offsets.embedding_dim,
                                    padding_idx=SpecialTokens.PAD),
-            'grid': nn.Embedding(GRID_FACTOR_VOCAB_SIZE, embedding_config.grid_factor.embedding_dim,
+            'grid_factor': nn.Embedding(GRID_FACTOR_VOCAB_SIZE, embedding_config.grid_factor.embedding_dim,
                                  padding_idx=SpecialTokens.PAD),
             'bpm': nn.Embedding(BPM_VOCAB_SIZE, embedding_config.bpm.embedding_dim, padding_idx=SpecialTokens.PAD),
             'time_signature': nn.Embedding(TIME_SIGNATURE_VOCAB_SIZE, embedding_config.time_signature.embedding_dim,
