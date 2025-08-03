@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional, Dict
+from typing import Optional, Dict, List, Literal
 from torch import nn, optim
 from torch.utils.data import DataLoader
 
@@ -12,6 +12,7 @@ class LearnerState:
     val_loader: DataLoader
     criterion: nn.Module
     max_epochs: int
+    eval_metrics: List[Literal['accuracy', 'f1', 'precision', 'recall', 'perplexity']] = field(default_factory=list)
     _current_batch: Optional[int] = None  # optional internal use
 
     # Dynamic values updated during training

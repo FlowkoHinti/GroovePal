@@ -4,6 +4,7 @@ import torch
 from torch import nn
 from typing import Sequence
 
+from Configs import RNG_SEED
 from GrooveModel.Embeddings import MultiTaskDNAEmbeddingConfig, MultiTaskDNAEmbedding
 from GrooveModel.Vocab import INSTRUMENT_VOCAB_SIZE, VELOCITY_VOCAB_SIZE, BEAT_UNIT_ABSOLUTE_VOCAB_SIZE, \
     BEAT_UNIT_RELATIVE_VOCAB_SIZE, OFFSET_VOCAB_SIZE, TIME_SIGNATURE_VOCAB_SIZE, GRID_FACTOR_VOCAB_SIZE, BPM_VOCAB_SIZE

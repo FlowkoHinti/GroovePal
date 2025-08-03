@@ -52,7 +52,7 @@ model:
   slstm_at: [0, 7]
 
 train:
-  model_name: mt_relGU_noPos
+  model_name: mt_relgu_nopos
   save_dir: Models
   device: cuda
   batch_size: 32
@@ -66,4 +66,5 @@ train:
   monitor: val_loss
   mode: min
   patience: 5
-  resume: false
+  load_best: false
+  metrics: ['accuracy', 'precision', 'recall', 'f1', 'perplexity']

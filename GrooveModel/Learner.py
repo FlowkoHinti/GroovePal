@@ -3,13 +3,15 @@
 # teacher forcing can be a great optimisation as well
 # add loss / training function for the various setups
 
+import math
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from dacite import from_dict, Config as DaciteConfig
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
-
+from torchmetrics import Perplexity
+from torchmetrics.classification import MulticlassAccuracy, MulticlassPrecision, MulticlassRecall, MulticlassF1Score
 
 from GrooveModel import Tokenizers, CollateFunctions
 from GrooveModel.Callbacks import CheckpointCallback, EarlyStoppingCallback, PlotLossCurvesCallback, \
@@ -21,7 +23,6 @@ from GrooveModel.Models import MultiTaskDNAxLSTM, MultiTaskDNAModelConfig
 from GrooveModel.TrainLoop import run_training_loop
 from GrooveModel.Utils.Logger import setup_logger
 from GrooveModel.Utils.SpecialTokens import SpecialTokens
-
 
 
 class MultiTaskDNALearner:
@@ -43,34 +44,33 @@ class MultiTaskDNALearner:
             ds_conf, split="train", tokenizer=Tokenizers.MultiTaskDNATokenizer
         )
         self.val_dataset = DNANextTokenDataset(
-            ds_conf, split="val", tokenizer=Tokenizers.MultiTaskDNATokenizer
+            ds_conf, split="validation", tokenizer=Tokenizers.MultiTaskDNATokenizer
         )
+        # self.test_dataset = DNANextTokenDataset(
+        #     ds_conf, split="test", tokenizer=Tokenizers.MultiTaskDNATokenizer
+        # )
 
-        self.train_loader = DataLoader(
-            self.train_dataset,
-            batch_size=self.cfg.train.batch_size,
-            shuffle=ds_conf.get("shuffle", True),
-            num_workers=ds_conf.get("num_workers", 4),
-            collate_fn=CollateFunctions.pad_truncate_batch
-        )
+        common_loader_args = {
+            "batch_size": self.cfg.train.batch_size,
+            "num_workers": ds_conf.get("num_workers", 4),
+            "collate_fn": CollateFunctions.pad_truncate_batch,
+        }
 
-        self.val_loader = DataLoader(
-            self.val_dataset,
-            batch_size=self.cfg.train.batch_size,
-            shuffle=False,
-            num_workers=ds_conf.get("num_workers", 4),
-            collate_fn=CollateFunctions.pad_truncate_batch
-        )
+        self.train_loader = DataLoader(self.train_dataset, shuffle=ds_conf.get("shuffle", True), **common_loader_args)
+        self.val_loader = DataLoader(self.val_dataset, shuffle=False, **common_loader_args)
+        # self.test_loader = DataLoader(self.test_dataset, shuffle=False, **common_loader_args)
 
     def _setup_embedding(self):
-        schema = OmegaConf.structured(MultiTaskDNAEmbeddingConfig())
-        self.embedding_config = OmegaConf.merge(schema, self.cfg.embedding)
+        self.embedding_config = from_dict(
+            MultiTaskDNAEmbeddingConfig,
+            OmegaConf.to_container(self.cfg.embedding, resolve=True),
+            config=DaciteConfig(strict=True)
+        )
 
     def _setup_model(self):
-        cfg_omega = OmegaConf.merge(OmegaConf.structured(MultiTaskDNAModelConfig()), self.cfg.model)
         model_config = from_dict(
             MultiTaskDNAModelConfig,
-            OmegaConf.to_container(cfg_omega, resolve=True),
+            OmegaConf.to_container(self.cfg.model, resolve=True),
             config=DaciteConfig(strict=True)
         )
 
@@ -95,6 +95,7 @@ class MultiTaskDNALearner:
             val_loader=self.val_loader,
             criterion=self.criterion,
             max_epochs=self.cfg.train.epochs,
+            eval_metrics=self.cfg.train.metrics,
         )
 
     def _setup_callbacks(self):
@@ -104,7 +105,8 @@ class MultiTaskDNALearner:
                 model_name=self.cfg.train.model_name,
                 logger=self.logger,
                 monitor=self.cfg.train.get("monitor", "val_loss"),
-                mode=self.cfg.train.get("mode", "min")
+                mode=self.cfg.train.get("mode", "min"),
+                load_best=self.cfg.train.get("load_best", False),
             ),
             EarlyStoppingCallback(
                 patience=self.cfg.train.get("patience", 5),
@@ -133,15 +135,52 @@ class MultiTaskDNALearner:
         ]
         self.callback_manager = CallbackManager(self.callbacks)
 
-    #TODO: FIX
-    def compute_loss(self, preds, targets):
-        return self.learner.criterion(preds, targets)
+    def compute_loss(self, logits_dict: dict[str, torch.Tensor], targets: torch.Tensor) -> torch.Tensor:
+        total_loss = 0.0
+        num_heads = len(logits_dict)
 
-    # TODO: FIX
-    def compute_metrics(self, preds, targets):
-        correct = (preds.argmax(dim=1) == targets).sum().item()
-        total = targets.size(0)
-        return {"accuracy": correct / total}
+        # Compute and accumulate loss per head
+        for i, (head, logits) in enumerate(logits_dict.items()):
+            logits = logits.view(-1, logits.size(-1))  # Flatten logits: (B*T, C)
+            target = targets[:, :, i].view(-1)  # Flatten target: (B*T,)
+            loss = self.learner.criterion(logits, target)  # Compute loss for this head
+            total_loss += loss
+
+        return total_loss / num_heads
+
+    def compute_metrics(self, logits_dict: dict[str, torch.Tensor], targets: torch.Tensor) -> dict[str, float]:
+        metric_dict = {
+            'accuracy': MulticlassAccuracy,
+            'precision': MulticlassPrecision,
+            'recall': MulticlassRecall,
+            'f1': MulticlassF1Score,
+            'perplexity': Perplexity,
+        }
+
+        results = {}
+
+        # Loop through each head
+        for i, (head, logits) in enumerate(logits_dict.items()):
+            head_results = {}
+
+            # Get predictions as class indices
+            pred_classes = torch.argmax(logits, dim=-1)  # Shape: (B, T)
+            target_classes = targets[:, :, i]  # Shape: (B, T)
+
+            pred_flat = pred_classes.view(-1)  # Flatten for metric calculation
+            target_flat = target_classes.view(-1)
+
+            # Compute each requested metric
+            # TODO: HANDLING FOR METRICS WITHOUT NUM CLASSES
+            for metric_name in self.learner.eval_metrics:
+                metric_cls = metric_dict[metric_name]
+                metric = metric_cls(num_classes=logits.size(-1)).to(self.device)
+                value = metric(pred_flat.to(self.device), target_flat.to(self.device))
+                head_results[f"{head}/{metric_name}"] = value.item() if hasattr(value, 'item') else float(value)
+
+            results.update(head_results)
+
+        return results
 
     def train(self):
         run_training_loop(
@@ -152,3 +191,10 @@ class MultiTaskDNALearner:
             compute_metrics_fn=self.compute_metrics,
             logger=self.logger
         )
+
+    @torch.no_grad()
+    def test(self):
+        self.model.eval()
+        self.logger.info("Starting test evaluation...")
+
+        pass

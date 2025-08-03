@@ -12,7 +12,7 @@ from GrooveModel.Utils.SpecialTokens import SpecialTokens
 
 # Paths
 BASE_PATH = Path(__file__).resolve().parents[1]
-DNA_PATH = BASE_PATH / 'Data' / 'dnas.json'
+DNA_PATH = BASE_PATH / 'Data'
 
 # Dataset Config
 ds_conf = {
@@ -23,7 +23,7 @@ ds_conf = {
 # --- Dataset Tests ---
 
 def test_dataset_loads_and_returns_tensor_pair():
-    dataset = DNANextTokenDataset(SimpleNamespace(**ds_conf), 'train', tokenizer=Tokenizers.MultiTaskDNATokenizer)
+    dataset = DNANextTokenDataset(SimpleNamespace(**ds_conf), 'unit_test', tokenizer=Tokenizers.MultiTaskDNATokenizer)
 
     x, y = dataset[0]
 
@@ -36,7 +36,7 @@ def test_dataset_loads_and_returns_tensor_pair():
 
 
 def test_dataset_multiple_samples():
-    dataset = DNANextTokenDataset(SimpleNamespace(**ds_conf), 'train', tokenizer=Tokenizers.MultiTaskDNATokenizer)
+    dataset = DNANextTokenDataset(SimpleNamespace(**ds_conf), 'unit_test', tokenizer=Tokenizers.MultiTaskDNATokenizer)
 
     sample_count = min(10, len(dataset))
     for i in range(sample_count):
@@ -71,7 +71,7 @@ def test_collate_fn_padding_and_alignment():
 
 def test_collate_fn_with_real_data():
     bs = 16
-    dataset = DNANextTokenDataset(SimpleNamespace(**ds_conf), 'train', tokenizer=Tokenizers.MultiTaskDNATokenizer)
+    dataset = DNANextTokenDataset(SimpleNamespace(**ds_conf), 'unit_test', tokenizer=Tokenizers.MultiTaskDNATokenizer)
     loader = DataLoader(dataset, batch_size=bs, collate_fn=pad_pack_batch)
 
     batch = next(iter(loader))  # One full batch

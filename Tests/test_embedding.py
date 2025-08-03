@@ -1,9 +1,10 @@
 import torch
 import pytest
+from dacite import from_dict
+from dacite import Config as DaciteConfig
 from omegaconf import OmegaConf
 
-from GrooveModel.Embeddings import MultiTaskDNAEmbedding, BeatPositionalEncoding
-
+from GrooveModel.Embeddings import MultiTaskDNAEmbedding, BeatPositionalEncoding, MultiTaskDNAEmbeddingConfig
 
 embedding_config_string = f"""
 instruments:
@@ -20,10 +21,18 @@ bpm:
     embedding_dim: 6
 beat_units:
     embedding_dim: 8
-    absolute_beat_units: False
+    absolute_beat_units: false
+normalize_embeddings: false
 """
 
+
 embedding_config = OmegaConf.create(embedding_config_string)
+
+embedding_config = from_dict(
+            MultiTaskDNAEmbeddingConfig,
+            OmegaConf.to_container(embedding_config, resolve=True),
+            config=DaciteConfig(strict=True)
+        )
 
 @pytest.fixture
 def embedding_module():
@@ -45,13 +54,13 @@ def test_embedding_output_shape(embedding_module):
 
     output = embedding_module(dummy_input)
     expected_dim = (
-        embedding_module.instrument_embedding.embedding_dim +
-        embedding_module.velocity_embedding.embedding_dim +
-        embedding_module.beat_unit_embedding.embedding_dim +
-        embedding_module.offset_embedding.embedding_dim +
-        embedding_module.time_signature_embedding.embedding_dim +
-        embedding_module.grid_embedding.embedding_dim +
-        embedding_module.bpm_embedding.embedding_dim
+        embedding_module.sub_embeddings['instrument'].embedding_dim +
+        embedding_module.sub_embeddings['velocity'].embedding_dim +
+        embedding_module.sub_embeddings['beat_unit'].embedding_dim +
+        embedding_module.sub_embeddings['offset'].embedding_dim +
+        embedding_module.sub_embeddings['time_signature'].embedding_dim +
+        embedding_module.sub_embeddings['grid_factor'].embedding_dim +
+        embedding_module.sub_embeddings['bpm'].embedding_dim
     )
 
     assert output.shape == (batch_size, seq_len, expected_dim)

@@ -82,16 +82,23 @@ class MultiTaskDNAEmbedding(nn.Module):
         return embedding
 
     def forward(self, token: torch.Tensor):
-        # Assume fixed order of features in token shape: (batch, seq, feature_index)
         feature_names = list(self.sub_embeddings.keys())
+        embeddings = []
 
-        embeddings = [
-            self.sub_embeddings[name](token[:, :, i])
-            for i, name in enumerate(feature_names)
-        ]
+        for i, name in enumerate(feature_names):
+            x = token[:, :, i]
+            emb_layer = self.sub_embeddings[name]
 
-        token_embedding = torch.cat(embeddings, dim=-1)
-        return self.normalize_embedding(token_embedding)
+            if x.min() < 0 or x.max() >= emb_layer.num_embeddings:
+                raise ValueError(
+                    f"Feature '{name}' has out-of-range indices: "
+                    f"min={x.min().item()}, max={x.max().item()}, "
+                    f"allowed=[0, {emb_layer.num_embeddings - 1}]"
+                )
+
+            embeddings.append(emb_layer(x))
+
+        return self.normalize_embedding(torch.cat(embeddings, dim=-1))
 
 
 class BeatPositionalEncoding(nn.Module):

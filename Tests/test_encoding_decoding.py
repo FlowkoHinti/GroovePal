@@ -11,8 +11,8 @@ from GrooveModel.Utils.DNAValue import InstrumentValues, RemappedInstrumentValue
     encode_instrument, decode_instrument, dna_to_instruments_strings, instruments_strings_to_dna, DNA_VALUE_TOKEN_SIZE
 from GrooveModel.Utils.DNAVelocity import VELOCITY_MIN, VELOCITY_MAX, VELOCITY_RESOLUTION, VELOCITY_TOKEN_SIZE, \
     encode_velocity, decode_velocity
-from GrooveModel.Utils.TimeSignatures import TIME_SIGNATURE_TOKEN_SIZE, UNKNOWN_TIME_SIGNATURE_ID, TIME_SIGNATURE_RESOLUTION, \
-    encode_time_signature, TIME_SIGNATURE_LOOKUP, decode_time_signature
+from GrooveModel.Utils.TimeSignatures import TIME_SIGNATURE_TOKEN_SIZE, UNKNOWN_TIME_SIGNATURE_ID, \
+    encode_time_signature, decode_time_signature, TimeSignatures, RemappedTimeSignatures
 
 # Mock SPECIAL_TOKEN_SIZE
 SPECIAL_TOKEN_SIZE = 1
@@ -212,45 +212,54 @@ class TestTimeSignatureEncoding(unittest.TestCase):
 
     def test_constants(self):
         self.assertGreater(SPECIAL_TOKEN_SIZE, 0)
-        self.assertEqual(TIME_SIGNATURE_TOKEN_SIZE, TIME_SIGNATURE_RESOLUTION + SPECIAL_TOKEN_SIZE)
-        self.assertEqual(UNKNOWN_TIME_SIGNATURE_ID, TIME_SIGNATURE_TOKEN_SIZE)
+        self.assertEqual(TIME_SIGNATURE_TOKEN_SIZE, len(TimeSignatures) + SPECIAL_TOKEN_SIZE)
+        self.assertEqual(UNKNOWN_TIME_SIGNATURE_ID, RemappedTimeSignatures.Unknown)
 
     def test_encoding_valid_signatures(self):
         test_cases = {
-            (4, 4): SPECIAL_TOKEN_SIZE,
-            (3, 4): SPECIAL_TOKEN_SIZE + 1,
-            (6, 8): SPECIAL_TOKEN_SIZE + 2,
-            (3, 2): SPECIAL_TOKEN_SIZE + 11
+            (4, 4): RemappedTimeSignatures.Time_4_4,
+            (3, 4): RemappedTimeSignatures.Time_3_4,
+            (6, 8): RemappedTimeSignatures.Time_6_8,
+            (3, 2): RemappedTimeSignatures.Time_3_2,
         }
         for time_sig, expected_id in test_cases.items():
             encoded = encode_time_signature(*time_sig)
             self.assertEqual(encoded, expected_id)
 
     def test_decoding_valid_ids(self):
-        for time_sig, encoded_id in TIME_SIGNATURE_LOOKUP.items():
+        test_cases = {
+            RemappedTimeSignatures.Time_4_4: (4, 4),
+            RemappedTimeSignatures.Time_3_4: (3, 4),
+            RemappedTimeSignatures.Time_6_8: (6, 8),
+            RemappedTimeSignatures.Time_3_2: (3, 2),
+        }
+        for encoded_id, expected_time_sig in test_cases.items():
             decoded = decode_time_signature(encoded_id)
-            self.assertEqual(decoded, time_sig)
+            self.assertEqual(decoded, expected_time_sig)
 
     def test_encode_unknown_signature_returns_fallback(self):
         self.assertEqual(
             encode_time_signature(5, 8),
-            UNKNOWN_TIME_SIGNATURE_ID
+            RemappedTimeSignatures.Unknown
         )
         self.assertEqual(
             encode_time_signature(11, 16),
-            UNKNOWN_TIME_SIGNATURE_ID
+            RemappedTimeSignatures.Unknown
         )
 
-    def test_decode_unknown_id_raises(self):
-        with self.assertRaises(ValueError):
-            decode_time_signature(UNKNOWN_TIME_SIGNATURE_ID)
-
-        with self.assertRaises(ValueError):
-            decode_time_signature(9999)  # well out of range
+    def test_decode_unknown_id_returns_placeholder(self):
+        self.assertEqual(
+            decode_time_signature(RemappedTimeSignatures.Unknown),
+            ("?", "?")
+        )
+        self.assertEqual(
+            decode_time_signature(9999),
+            ("?", "?")
+        )
 
     def test_denominator_validation(self):
         with self.assertRaises(ValueError):
-            encode_time_signature(4, 1)  # invalid denominator
+            encode_time_signature(4, 1)
 
         with self.assertRaises(ValueError):
             encode_time_signature(4, 0)

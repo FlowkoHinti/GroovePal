@@ -3,8 +3,9 @@ import logging
 import os
 import time
 from os import PathLike
-from typing import Union, Any, Optional, Literal, Tuple
+from typing import Union, Literal, Tuple, Dict
 
+import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import psutil
 import torch
@@ -48,13 +49,13 @@ class CallbackManager:
 
 class CheckpointCallback(Callback):
     def __init__(
-        self,
-        save_dir: Union[str, PathLike],
-        model_name: str,
-        logger: logging.Logger = None,
-        load_best: bool = False,
-        monitor: str = "val_loss",
-        mode: Literal["min", "max"] = "min"
+            self,
+            save_dir: Union[str, PathLike],
+            model_name: str,
+            logger: logging.Logger = None,
+            load_best: bool = False,
+            monitor: str = "val_loss",
+            mode: Literal["min", "max"] = "min"
     ):
         super().__init__(logger=logger)
         self.save_dir = os.path.join(save_dir, model_name, 'checkpoints')
@@ -75,8 +76,8 @@ class CheckpointCallback(Callback):
     @staticmethod
     def _get_vram_usage():
         if torch.cuda.is_available():
-            allocated = torch.cuda.memory_allocated() / 1e6
-            max_allocated = torch.cuda.max_memory_allocated() / 1e6
+            allocated = torch.cuda.memory_allocated('cuda') / 1e6
+            max_allocated = torch.cuda.max_memory_allocated('cuda') / 1e6
             return {'vram_MB': allocated, 'vram_max_MB': max_allocated}
         return {'vram_MB': 0.0, 'vram_max_MB': 0.0}
 
@@ -215,16 +216,16 @@ class EarlyStoppingCallback(Callback):
 # ---------- Plotting ----------
 class PlotLossCurvesCallback(Callback):
     def __init__(
-        self,
-        save_dir: Union[str, PathLike],
-        model_name: str,
-        figsize: Tuple[int, int] = (8, 6),
-        train_color: str = "blue",
-        val_color: str = "orange",
-        ymin: float = 0.0,
-        ymax: float = 2.0,
-        linewidth: float = 2.0,
-        logger=None
+            self,
+            save_dir: Union[str, PathLike],
+            model_name: str,
+            figsize: Tuple[int, int] = (8, 6),
+            train_color: str = "blue",
+            val_color: str = "orange",
+            ymin: float = 0.0,
+            ymax: float = 2.0,
+            linewidth: float = 2.0,
+            logger=None
     ):
         super().__init__(logger=logger)
         self.plot_dir = os.path.join(save_dir, model_name, 'plots')
@@ -253,8 +254,8 @@ class PlotLossCurvesCallback(Callback):
         val_losses = [entry['val_loss'] for entry in stats]
 
         plt.figure(figsize=self.figsize)
-        plt.plot(epochs, train_losses, label="Train Loss", color=self.train_color, linewidth=self.linewidth)
-        plt.plot(epochs, val_losses, label="Validation Loss", color=self.val_color, linewidth=self.linewidth)
+        plt.plot(epochs, train_losses, label="Train Loss", marker='o', color=self.train_color, linewidth=self.linewidth)
+        plt.plot(epochs, val_losses, label="Validation Loss", marker='o', color=self.val_color, linewidth=self.linewidth)
         plt.xlabel("Epoch")
         plt.ylabel("Loss")
         plt.title("Loss Curves")
@@ -276,10 +277,10 @@ class PlotLossCurvesCallback(Callback):
 class PlotMetricsCallback(Callback):
     def __init__(
         self,
-        save_dir: Union[str, PathLike],
+        save_dir: Union[str, os.PathLike],
         model_name: str,
         figsize: Tuple[int, int] = (8, 6),
-        metric_colors: dict = None,     # e.g., {"accuracy": "green", "f1": "purple"}
+        metric_colormaps: Dict[str, str] = None,  # e.g., {"accuracy": "Blues", "f1": "Purples"}
         ymin: float = 0.0,
         ymax: float = 1.0,
         line_width: float = 2.0,
@@ -293,7 +294,13 @@ class PlotMetricsCallback(Callback):
         self.stats_file = os.path.join(self.checkpoint_dir, 'training_stats.json')
 
         self.figsize = figsize
-        self.metric_colors = metric_colors or {}
+        self.metric_colormaps = metric_colormaps or {
+            "accuracy": "Blues",
+            "precision": "Greens",
+            "recall": "Oranges",
+            "f1": "Purples",
+            "perplexity": "Reds"
+        }
         self.ymin = ymin
         self.ymax = ymax
         self.line_width = line_width
@@ -310,28 +317,43 @@ class PlotMetricsCallback(Callback):
             self.logger.warning("No metrics found in training stats.")
             return
 
-        all_metrics = stats[0]["metrics"].keys()
+        # Extract per-head metrics (those with slash)
+        per_head_metrics = {}
+        for key in stats[0]["metrics"].keys():
+            if '/' in key:
+                head, metric = key.split('/', 1)
+                per_head_metrics.setdefault(metric, []).append(head)
 
-        for metric in all_metrics:
-            epochs = [entry['epoch'] for entry in stats]
-            values = [entry["metrics"].get(metric) for entry in stats]
-
+        for metric, heads in per_head_metrics.items():
             plt.figure(figsize=self.figsize)
-            color = self.metric_colors.get(metric, None)
+            epochs = [entry['epoch'] for entry in stats]
 
-            plt.plot(
-                epochs,
-                values,
-                label=metric.title(),
-                color=color,
-                linewidth=self.line_width
-            )
+            cmap_name = self.metric_colormaps.get(metric, 'Blues')
+            cmap = cm.get_cmap(cmap_name, len(heads))
+
+            for i, head in enumerate(sorted(heads)):
+                key = f"{head}/{metric}"
+                values = [entry["metrics"].get(key) for entry in stats]
+
+                if any(v is None for v in values):
+                    self.logger.warning(f"Missing values for metric '{key}'")
+                    continue
+
+                plt.plot(
+                    epochs,
+                    values,
+                    label=head,
+                    color=cmap(i),
+                    linewidth=self.line_width,
+                    marker='o'
+                )
+
             plt.xlabel("Epoch")
             plt.ylabel(metric.title())
-            plt.title(f"{metric.title()} Curve")
+            plt.title(f"{metric.title()} per Head")
             plt.xticks(epochs)
             plt.ylim(self.ymin, self.ymax)
-            plt.legend()
+            plt.legend(title="Head")
             plt.grid(True)
 
             png_path = os.path.join(self.plot_dir, f"{metric}_curve.png")
@@ -381,11 +403,11 @@ class GradientClippingCallback(Callback):
 
 class EpochSummaryCallback(Callback):
     def __init__(
-        self,
-        save_dir: Union[str, PathLike],
-        model_name: str,
-        float_precision: int = 4,
-        logger=None
+            self,
+            save_dir: Union[str, PathLike],
+            model_name: str,
+            float_precision: int = 4,
+            logger=None
     ):
         super().__init__(logger=logger)
         self.stats_file = os.path.join(save_dir, model_name, 'checkpoints', 'training_stats.json')
@@ -411,8 +433,11 @@ class EpochSummaryCallback(Callback):
             f"Val Loss: {record['val_loss']:.{self.precision}f}"
         ]
 
+        # Filter to only include average metrics (no slash)
         metrics = record.get("metrics", {})
-        for name, value in metrics.items():
+        avg_metrics = {k: v for k, v in metrics.items() if '/' not in k}
+
+        for name, value in avg_metrics.items():
             parts.append(f"{name}: {value:.{self.precision}f}")
 
         parts.append(f"Elapsed: {record['elapsed_sec']:.1f}s")

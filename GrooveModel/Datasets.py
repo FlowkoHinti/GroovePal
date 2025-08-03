@@ -13,13 +13,12 @@ def load_dna_json(dna_path: str):
     with open(dna_path, 'rb') as f:
         return json.load(f)
 
-def get_dna_json_path(dna_path: Union[str, PathLike]):
-    """Find the first DNA JSON file."""
+def get_all_dna_json_paths(dna_path: Union[str, PathLike]):
+    """Return all DNA JSON file paths in the directory."""
     json_files = [f for f in os.listdir(dna_path) if f.endswith('.json')]
     if not json_files:
-        raise FileNotFoundError('No DNA JSON file found in {}'.format(dna_path))
-    return os.path.join(dna_path, json_files[0])
-
+        raise FileNotFoundError(f'No DNA JSON files found in {dna_path}')
+    return [os.path.join(dna_path, f) for f in json_files]
 
 class DNANextTokenDataset(Dataset):
     def __init__(self, cfg: DictConfig, split: str, transform=None, tokenizer=None):
@@ -31,8 +30,13 @@ class DNANextTokenDataset(Dataset):
         tokenizer_cfg = getattr(cfg, "tokenizer", {})
         self.tokenizer_kwargs = dict(tokenizer_cfg)
 
-        dna_json_path = get_dna_json_path(cfg.dna_path / split)
-        all_dnas = load_dna_json(dna_json_path)
+        dna_dir = cfg.dna_path / split
+        all_json_paths = get_all_dna_json_paths(dna_dir)
+
+        all_dnas = []
+        for json_path in all_json_paths:
+            dnas = load_dna_json(json_path)
+            all_dnas.extend(dnas)  # concatenate lists
 
         # Apply dataset subset limit if specified
         subset = getattr(cfg, "subset", None)

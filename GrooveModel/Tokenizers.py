@@ -55,7 +55,7 @@ class DNAToken:
             self.GridFactor,
             self.Bpm,
             self.TimeSignature,
-        ], dtype=torch.int)
+        ], dtype=torch.long) # Long as it is required for loss calculation
 
     @classmethod
     def from_tensor(cls, tensor: torch.Tensor) -> 'DNAToken':

@@ -1,55 +1,86 @@
+from enum import IntEnum, auto
+
 from GrooveModel.Utils.SpecialTokens import SPECIAL_TOKEN_SIZE
 
-# Raw mapping starts from 0 internally
-_RAW_TIME_SIGNATURE_LOOKUP = {
-    (4, 4): 0,
-    (3, 4): 1,
-    (6, 8): 2,
-    (2, 4): 3,
-    (2, 2): 4,
-    (5, 4): 5,
-    (7, 8): 6,
-    (9, 8): 7,
-    (12, 8): 8,
-    (3, 8): 9,
-    (6, 4): 10,
-    (3, 2): 11,
-    # Add more as needed
+
+class TimeSignatures(IntEnum):
+    Time_4_4 = 0
+    Time_3_4 = 1
+    Time_6_8 = 2
+    Time_2_4 = 3
+    Time_2_2 = 4
+    Time_5_4 = 5
+    Time_7_8 = 6
+    Time_9_8 = 7
+    Time_12_8 = 8
+    Time_3_8 = 9
+    Time_6_4 = 10
+    Time_3_2 = 11
+    Unknown = 12  # Add this explicitly
+
+
+class RemappedTimeSignatures(IntEnum):
+    Time_4_4 = SPECIAL_TOKEN_SIZE
+    Time_3_4 = auto()
+    Time_6_8 = auto()
+    Time_2_4 = auto()
+    Time_2_2 = auto()
+    Time_5_4 = auto()
+    Time_7_8 = auto()
+    Time_9_8 = auto()
+    Time_12_8 = auto()
+    Time_3_8 = auto()
+    Time_6_4 = auto()
+    Time_3_2 = auto()
+    Unknown = auto()  # Ensure a clean symbolic ID for unknown
+
+
+TIME_SIGNATURE_TOKEN_SIZE = len(TimeSignatures) + SPECIAL_TOKEN_SIZE
+UNKNOWN_TIME_SIGNATURE_ID = RemappedTimeSignatures.Unknown
+
+
+_TIME_SIGNATURE_NAME_LOOKUP = {
+    (4, 4): "Time_4_4",
+    (3, 4): "Time_3_4",
+    (6, 8): "Time_6_8",
+    (2, 4): "Time_2_4",
+    (2, 2): "Time_2_2",
+    (5, 4): "Time_5_4",
+    (7, 8): "Time_7_8",
+    (9, 8): "Time_9_8",
+    (12, 8): "Time_12_8",
+    (3, 8): "Time_3_8",
+    (6, 4): "Time_6_4",
+    (3, 2): "Time_3_2",
+    # Add more if needed
 }
 
-# Time signatures start after the special token range
-TIME_SIGNATURE_LOOKUP = {
-    k: v + SPECIAL_TOKEN_SIZE for k, v in _RAW_TIME_SIGNATURE_LOOKUP.items()
-}
 
 ID_TO_TIME_SIGNATURE = {
-    v: k for k, v in TIME_SIGNATURE_LOOKUP.items()
+    RemappedTimeSignatures[name]: (numerator, denominator)
+    for (numerator, denominator), name in _TIME_SIGNATURE_NAME_LOOKUP.items()
 }
-
-# Size of real values (excluding specials)
-TIME_SIGNATURE_RESOLUTION = len(_RAW_TIME_SIGNATURE_LOOKUP)
-
-# Full token vocabulary size
-TIME_SIGNATURE_TOKEN_SIZE = TIME_SIGNATURE_RESOLUTION + SPECIAL_TOKEN_SIZE
-
-# ID for unknown time signatures
-UNKNOWN_TIME_SIGNATURE_ID = TIME_SIGNATURE_TOKEN_SIZE
+ID_TO_TIME_SIGNATURE[RemappedTimeSignatures.Unknown] = ("?", "?")  # symbolic fallback
 
 
-def encode_time_signature(numerator: int, denominator: int) -> int:
+def encode_time_signature(numerator: int, denominator: int) -> RemappedTimeSignatures:
     """
-    Encodes a time signature (numerator, denominator) to a token ID.
-    Time signature tokens start at SPECIAL_TOKEN_SIZE.
+    Encodes a time signature (numerator, denominator) to a remapped enum ID.
+    Returns RemappedTimeSignatures.Unknown if the time signature is not recognized.
     """
     if denominator < 2:
         raise ValueError("Denominator must be >= 2.")
-    return TIME_SIGNATURE_LOOKUP.get((numerator, denominator), UNKNOWN_TIME_SIGNATURE_ID)
+
+    name = _TIME_SIGNATURE_NAME_LOOKUP.get((numerator, denominator))
+    if name is None:
+        return RemappedTimeSignatures.Unknown
+
+    return RemappedTimeSignatures[name]
 
 
-def decode_time_signature(time_id: int) -> tuple[int, int]:
+def decode_time_signature(time_id: int) -> tuple[int, int] | tuple[str, str]:
     """
-    Decodes a token ID back to (numerator, denominator).
+    Decodes a remapped time signature token ID back to (numerator, denominator).
+    Returns ("?", "?") if the ID is unknown.
     """
-    if time_id not in ID_TO_TIME_SIGNATURE:
-        raise ValueError(f"Unknown time signature ID: {time_id}")
-    return ID_TO_TIME_SIGNATURE[time_id]
+    return ID_TO_TIME_SIGNATURE.get(time_id, ("?", "?"))
