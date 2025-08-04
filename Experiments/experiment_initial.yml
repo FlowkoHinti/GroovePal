@@ -67,4 +67,4 @@ train:
   mode: min
   patience: 5
   load_best: false
-  metrics: ['accuracy', 'precision', 'recall', 'f1', 'perplexity']
+  metrics: ['top_k_accuracy@1','top_k_accuracy@3', 'top_k_f1@3', 'top_k_precision@3', 'top_k_recall@3','perplexity']

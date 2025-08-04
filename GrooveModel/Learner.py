@@ -10,8 +10,8 @@ import torch.optim as optim
 from dacite import from_dict, Config as DaciteConfig
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
-from torchmetrics import Perplexity
-from torchmetrics.classification import MulticlassAccuracy, MulticlassPrecision, MulticlassRecall, MulticlassF1Score
+from torchmetrics.text import Perplexity
+from torchmetrics.classification import MulticlassAccuracy, MulticlassF1Score
 
 from GrooveModel import Tokenizers, CollateFunctions
 from GrooveModel.Callbacks import CheckpointCallback, EarlyStoppingCallback, PlotLossCurvesCallback, \
@@ -149,36 +149,66 @@ class MultiTaskDNALearner:
         return total_loss / num_heads
 
     def compute_metrics(self, logits_dict: dict[str, torch.Tensor], targets: torch.Tensor) -> dict[str, float]:
-        metric_dict = {
-            'accuracy': MulticlassAccuracy,
-            'precision': MulticlassPrecision,
-            'recall': MulticlassRecall,
-            'f1': MulticlassF1Score,
-            'perplexity': Perplexity,
-        }
-
         results = {}
+        metric_sums = {}
+        metric_counts = {}
 
-        # Loop through each head
         for i, (head, logits) in enumerate(logits_dict.items()):
             head_results = {}
 
-            # Get predictions as class indices
-            pred_classes = torch.argmax(logits, dim=-1)  # Shape: (B, T)
-            target_classes = targets[:, :, i]  # Shape: (B, T)
-
-            pred_flat = pred_classes.view(-1)  # Flatten for metric calculation
+            target_classes = targets[:, :, i]  # (B, T)
             target_flat = target_classes.view(-1)
+            logits_flat = logits.view(-1, logits.size(-1))  # (N, V)
+            topk_preds = {}  # cache top-k predictions
 
-            # Compute each requested metric
-            # TODO: HANDLING FOR METRICS WITHOUT NUM CLASSES
             for metric_name in self.learner.eval_metrics:
-                metric_cls = metric_dict[metric_name]
-                metric = metric_cls(num_classes=logits.size(-1)).to(self.device)
-                value = metric(pred_flat.to(self.device), target_flat.to(self.device))
-                head_results[f"{head}/{metric_name}"] = value.item() if hasattr(value, 'item') else float(value)
+                if metric_name.startswith("top_k_accuracy@"):
+                    k = int(metric_name.split("@")[1])
+                    metric = MulticlassAccuracy(num_classes=logits.size(-1), top_k=k).to(self.device)
+                    value = metric(logits_flat.to(self.device), target_flat.to(self.device))
+
+                elif metric_name.startswith("top_k_precision@") or \
+                        metric_name.startswith("top_k_recall@") or \
+                        metric_name.startswith("top_k_f1@"):
+                    k = int(metric_name.split("@")[1])
+
+                    if k not in topk_preds:
+                        topk = torch.topk(logits_flat, k=k, dim=-1).indices  # (N, k)
+                        topk_preds[k] = topk
+
+                    topk = topk_preds[k]  # (N, k)
+                    correct = (topk == target_flat.unsqueeze(1)).any(dim=1).float()  # (N,)
+
+                    if metric_name.startswith("top_k_precision@"):
+                        value = correct.mean() / k
+                    elif metric_name.startswith("top_k_recall@"):
+                        value = correct.mean()  # 1 if found in top-k, else 0
+                    elif metric_name.startswith("top_k_f1@"):
+                        prec = correct.mean() / k
+                        rec = correct.mean()
+                        f1 = 2 * (prec * rec) / (prec + rec + 1e-8)
+                        value = f1
+
+                elif metric_name == "perplexity":
+                    metric = Perplexity(ignore_index=SpecialTokens.PAD).to(self.device)
+                    value = metric(logits.to(self.device), target_classes.to(self.device))
+
+                else:
+                    raise ValueError(f"Unsupported metric: {metric_name}")
+
+                value_scalar = value.item() if hasattr(value, 'item') else float(value)
+                head_results[f"{head}/{metric_name}"] = value_scalar
+
+                metric_sums.setdefault(metric_name, 0.0)
+                metric_counts.setdefault(metric_name, 0)
+                metric_sums[metric_name] += value_scalar
+                metric_counts[metric_name] += 1
 
             results.update(head_results)
+
+        for metric_name in metric_sums:
+            avg_value = metric_sums[metric_name] / metric_counts[metric_name]
+            results[f"avg_{metric_name}"] = avg_value
 
         return results
 
