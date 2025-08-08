@@ -3,6 +3,7 @@ from typing import Callable, Dict, Any
 
 import torch
 from tqdm import tqdm
+from torch.cuda.amp import autocast, GradScaler
 
 from GrooveModel.Callbacks import CallbackManager
 from GrooveModel.LearnerState import LearnerState
@@ -14,7 +15,8 @@ def run_training_loop(
     device: torch.device,
     compute_loss_fn: Callable[..., torch.Tensor],
     compute_metrics_fn: Callable[..., Dict[str, float]],
-    logger: logging.Logger
+    logger: logging.Logger,
+    use_mixed_precision: bool = False
 ) -> None:
     callback_manager.call("on_train_begin", learner)
 
@@ -32,10 +34,17 @@ def run_training_loop(
             inputs, targets = batch[0].to(device), batch[1].to(device)
             learner.optimizer.zero_grad()
 
-            outputs = learner.model(inputs)
-            loss = compute_loss_fn(outputs, targets)
-            loss.backward()
-            learner.optimizer.step()
+            if use_mixed_precision:
+                with autocast(dtype=torch.bfloat16):
+                    outputs = learner.model(inputs)
+                    loss = compute_loss_fn(outputs, targets)
+                loss.backward()
+                learner.optimizer.step()
+            else:
+                outputs = learner.model(inputs)
+                loss = compute_loss_fn(outputs, targets)
+                loss.backward()
+                learner.optimizer.step()
 
             total_loss += loss.item()
             callback_manager.call("on_batch_end", learner)
@@ -51,11 +60,14 @@ def run_training_loop(
             for batch in learner.val_loader:
                 inputs, targets = batch[0].to(device), batch[1].to(device)
 
-                # Forward pass
-                outputs = learner.model(inputs)
+                if use_mixed_precision:
+                    with autocast(dtype=torch.bfloat16):
+                        outputs = learner.model(inputs)
+                        loss = compute_loss_fn(outputs, targets)
+                else:
+                    outputs = learner.model(inputs)
+                    loss = compute_loss_fn(outputs, targets)
 
-                # Compute loss
-                loss = compute_loss_fn(outputs, targets)
                 total_val_loss += loss.item()
 
                 # Compute metrics

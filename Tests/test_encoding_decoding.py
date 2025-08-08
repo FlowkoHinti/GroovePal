@@ -2,7 +2,7 @@ import unittest
 
 from GrooveModel.Utils.BeatUnit import BEAT_UNIT_TOKEN_SIZE_RELATIVE, MAX_GRID_UNITS_PER_BAR, MAX_GRID_UNITS_PER_SONG, \
     BEAT_UNIT_TOKEN_SIZE_ABSOLUTE, encode_beat_unit, decode_beat_unit
-from GrooveModel.Utils.BeatsPerMinute import encode_bpm, decode_bpm, BPM_RESOLUTION, BPM_TOKEN_SIZE
+from GrooveModel.Utils.BeatsPerMinute import encode_bpm, decode_bpm, BPM_RESOLUTION, BPM_TOKEN_SIZE, MIN_BPM, MAX_BPM
 from GrooveModel.Utils.DNAGridFactor import GridFactors, RemappedGridFactors, encode_grid_factor, decode_grid_factor, \
     GRID_FACTOR_TOKEN_SIZE
 from GrooveModel.Utils.DNAOffset import encode_offset_ticks, OFFSET_TOKEN_SIZE, decode_offset_ticks, \
@@ -102,7 +102,6 @@ class TestGridFactorEncoding(unittest.TestCase):
 class TestOffsetEncoding(unittest.TestCase):
 
     def setUp(self):
-        # Now using ticks per *grid unit*, not per quarter note
         self.ticks_per_grid_unit = 120
 
     def test_offset_encoding_within_bounds(self):
@@ -140,35 +139,48 @@ class TestOffsetEncoding(unittest.TestCase):
         # Confirm size of total token space includes special tokens
         self.assertEqual(OFFSET_TOKEN_SIZE, OFFSET_TICKS_RESOLUTION + SPECIAL_TOKEN_SIZE)
 
+
 class TestBPMEncoding(unittest.TestCase):
 
     def test_bpm_encode_decode_roundtrip(self):
-        for bpm in [1, 60, 120, 180, 240, 300]:
+        for bpm in [MIN_BPM, 60, 120, 180, 240, MAX_BPM-1]:
             encoded = encode_bpm(bpm)
             decoded = decode_bpm(encoded)
             self.assertEqual(decoded, bpm, f"Round-trip failed for BPM: {bpm}")
 
-    def test_encoded_bpm_has_special_token_offset(self):
+    def test_encoded_bpm_has_correct_offset(self):
         bpm = 100
-        encoded = encode_bpm(bpm)
-        self.assertEqual(encoded, bpm + SPECIAL_TOKEN_SIZE)
+        expected_encoded = (bpm - MIN_BPM) + SPECIAL_TOKEN_SIZE
+        self.assertEqual(encode_bpm(bpm), expected_encoded)
 
-    def test_decoded_bpm_removes_offset(self):
-        token = 150 + SPECIAL_TOKEN_SIZE
+    def test_decoded_bpm_removes_offset_correctly(self):
+        bpm = 150
+        token = encode_bpm(bpm)
         decoded = decode_bpm(token)
-        self.assertEqual(decoded, 150)
+        self.assertEqual(decoded, bpm)
 
-    def test_bpm_size_is_correct(self):
+    def test_bpm_token_size_is_correct(self):
         self.assertEqual(BPM_TOKEN_SIZE, BPM_RESOLUTION + SPECIAL_TOKEN_SIZE)
 
     def test_encoding_bounds(self):
-        encoded_min = encode_bpm(1)
-        encoded_max = encode_bpm(BPM_RESOLUTION)
-        self.assertEqual(decode_bpm(encoded_min), 1)
-        self.assertEqual(decode_bpm(encoded_max), BPM_RESOLUTION)
+        encoded_min = encode_bpm(MIN_BPM)
+        encoded_max = encode_bpm(MAX_BPM-1)
 
-        self.assertEqual(encoded_min, SPECIAL_TOKEN_SIZE + 1)
-        self.assertEqual(encoded_max, BPM_TOKEN_SIZE)
+        self.assertEqual(decode_bpm(encoded_min), MIN_BPM)
+        self.assertEqual(decode_bpm(encoded_max), MAX_BPM-1)
+
+        self.assertEqual(encoded_min, SPECIAL_TOKEN_SIZE)
+        self.assertEqual(encoded_max, SPECIAL_TOKEN_SIZE + (MAX_BPM - MIN_BPM - 1))
+
+    def test_out_of_range_bpm_raises_error(self):
+        with self.assertRaises(ValueError):
+            encode_bpm(MIN_BPM - 1)
+        with self.assertRaises(ValueError):
+            encode_bpm(MAX_BPM + 1)
+        with self.assertRaises(ValueError):
+            decode_bpm(SPECIAL_TOKEN_SIZE - 1)
+        with self.assertRaises(ValueError):
+            decode_bpm(SPECIAL_TOKEN_SIZE + (MAX_BPM - MIN_BPM + 1))  # One above max token
 
 class TestVelocityEncoding(unittest.TestCase):
 
@@ -296,15 +308,15 @@ class TestBeatUnitEncoding(unittest.TestCase):
 
     def test_out_of_bounds_relative(self):
         with self.assertRaises(ValueError):
-            encode_beat_unit(MAX_GRID_UNITS_PER_BAR, absolute=False)
+            encode_beat_unit(MAX_GRID_UNITS_PER_BAR + 1, absolute=False)
         with self.assertRaises(ValueError):
-            decode_beat_unit(SPECIAL_TOKEN_SIZE + MAX_GRID_UNITS_PER_BAR, absolute=False)
+            decode_beat_unit(SPECIAL_TOKEN_SIZE + MAX_GRID_UNITS_PER_BAR + 1, absolute=False)
 
     def test_out_of_bounds_absolute(self):
         with self.assertRaises(ValueError):
-            encode_beat_unit(MAX_GRID_UNITS_PER_SONG, absolute=True)
+            encode_beat_unit(MAX_GRID_UNITS_PER_SONG + 1, absolute=True)
         with self.assertRaises(ValueError):
-            decode_beat_unit(SPECIAL_TOKEN_SIZE + MAX_GRID_UNITS_PER_SONG, absolute=True)
+            decode_beat_unit(SPECIAL_TOKEN_SIZE + MAX_GRID_UNITS_PER_SONG + 1, absolute=True)
 
 if __name__ == '__main__':
     unittest.main()

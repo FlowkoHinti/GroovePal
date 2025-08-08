@@ -3,6 +3,9 @@ import logging
 from pathlib import Path
 from tqdm import tqdm
 
+from GrooveModel.Utils.BeatsPerMinute import MIN_BPM, MAX_BPM
+from GrooveModel.Utils.TimeSignatures import TimeSignatures
+
 # Logging setup (already present in your code)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -35,6 +38,16 @@ def clean_dna_file(json_path: Path):
     for dna in data:
         dna_units = dna.get('DNAUnits', [])
         if not isinstance(dna_units, list) or len(dna_units) < 10:
+            removed_count += 1
+            continue
+
+        bpm = dna.get('Bpm', 0)
+        if not isinstance(bpm, int) or bpm < MIN_BPM or bpm >= MAX_BPM:
+            removed_count += 1
+            continue
+
+        numerator = dna.get('Numerator', 0)
+        if not isinstance(numerator, int) or numerator > 12:
             removed_count += 1
             continue
 

@@ -104,6 +104,7 @@ class CheckpointCallback(Callback):
                     learner.model.load_state_dict(checkpoint['model'])
                     learner.optimizer.load_state_dict(checkpoint['optimizer'])
                     if learner.scheduler:
+                        # TODO CHECK IF LAST EPOCH IS SET CORRECTLY
                         learner.scheduler.load_state_dict(checkpoint['scheduler'])
                     learner.start_epoch = self.last_epoch + 1
                     self.best_metric_value = last_record.get("best_metric_value", self.best_metric_value)

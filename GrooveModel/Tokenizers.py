@@ -72,6 +72,7 @@ def tensor_to_tokens(tensor: torch.Tensor) -> list[DNAToken]:
     """Convert a tensor back into a list of DNATokens."""
     return [DNAToken.from_tensor(row) for row in tensor]
 
+# TODO: MAKE MORE PERFORMANT (DO ALL IN TENSOR SPACE ALREADY) -> OR Pretokenize
 
 class MultiTaskDNATokenizer:
     @staticmethod

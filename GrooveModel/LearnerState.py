@@ -12,7 +12,7 @@ class LearnerState:
     val_loader: DataLoader
     criterion: nn.Module
     max_epochs: int
-    eval_metrics: List[Literal['accuracy', 'f1', 'precision', 'recall', 'perplexity']] = field(default_factory=list)
+    eval_metrics: List[str] = field(default_factory=list)
     _current_batch: Optional[int] = None  # optional internal use
 
     # Dynamic values updated during training

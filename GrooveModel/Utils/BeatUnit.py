@@ -1,7 +1,9 @@
+from GrooveModel.Utils.DNAGridFactor import GridFactors
+from GrooveModel.Utils.TimeSignatures import decode_time_signature, RemappedTimeSignatures
 from GrooveModel.Utils.SpecialTokens import SPECIAL_TOKEN_SIZE
 from Configs import MAX_SEQUENCE_LENGTH
 
-MAX_GRID_UNITS_PER_BAR = 72
+MAX_GRID_UNITS_PER_BAR = GridFactors.SixteenthTriplet * decode_time_signature(RemappedTimeSignatures.Time_12_8)[0]
 MAX_GRID_UNITS_PER_SONG = MAX_SEQUENCE_LENGTH
 
 # Token vocab sizes

@@ -2,16 +2,16 @@
 # insert mask tokens into sequence and let model predict sequence without mask tokens I_mask -> I
 # teacher forcing can be a great optimisation as well
 # add loss / training function for the various setups
-
 import math
+from abc import ABC, abstractmethod
+
 import torch
 import torch.nn as nn
-import torch.optim as optim
 from dacite import from_dict, Config as DaciteConfig
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
+from torchmetrics.classification import MulticlassAccuracy
 from torchmetrics.text import Perplexity
-from torchmetrics.classification import MulticlassAccuracy, MulticlassF1Score
 
 from GrooveModel import Tokenizers, CollateFunctions
 from GrooveModel.Callbacks import CheckpointCallback, EarlyStoppingCallback, PlotLossCurvesCallback, \
@@ -23,17 +23,74 @@ from GrooveModel.Models import MultiTaskDNAxLSTM, MultiTaskDNAModelConfig
 from GrooveModel.TrainLoop import run_training_loop
 from GrooveModel.Utils.Logger import setup_logger
 from GrooveModel.Utils.SpecialTokens import SpecialTokens
+from GrooveModel.xlstm.experiments.lr_scheduler import LinearWarmupCosineAnnealing
 
 
-class MultiTaskDNALearner:
+class BaseDNALearner(ABC):
     def __init__(self, cfg: DictConfig):
         self.cfg = cfg
-        self.logger = setup_logger("MultiTaskDNALearner")
         self.device = torch.device(self.cfg.train.device if torch.cuda.is_available() else "cpu")
+
+    @abstractmethod
+    def _setup_dataset(self):
+        """Set up training/validation/test datasets and data loaders."""
+        pass
+
+    @abstractmethod
+    def _setup_embedding(self):
+        """Initialize embedding configurations."""
+        pass
+
+    @abstractmethod
+    def _setup_model(self):
+        """Instantiate and initialize the model."""
+        pass
+
+    @abstractmethod
+    def _setup_optimizer(self):
+        """Initializes the optimizer with weight decay applied to appropriate parameters."""
+        pass
+
+    @abstractmethod
+    def _setup_training_objects(self):
+        """Set up optimizer, scheduler, loss function, and learner state."""
+        pass
+
+    @abstractmethod
+    def _setup_callbacks(self):
+        """Register callbacks used during training."""
+        pass
+
+    @abstractmethod
+    def compute_loss(self, logits, targets) -> torch.Tensor:
+        """Compute and return the training loss."""
+        pass
+
+    @abstractmethod
+    def compute_metrics(self, logits, targets) -> dict[str, float]:
+        """Compute and return evaluation metrics."""
+        pass
+
+    @abstractmethod
+    def train(self):
+        """Main training loop."""
+        pass
+
+    @abstractmethod
+    def test(self):
+        """Evaluation on the test set."""
+        pass
+
+
+class MultiTaskDNALearner(BaseDNALearner):
+    def __init__(self, cfg: DictConfig):
+        super().__init__(cfg)
+        self.logger = setup_logger("MultiTaskDNALearner")
 
         self._setup_dataset()
         self._setup_embedding()
         self._setup_model()
+        self._setup_optimizer()
         self._setup_training_objects()
         self._setup_callbacks()
 
@@ -74,16 +131,46 @@ class MultiTaskDNALearner:
             config=DaciteConfig(strict=True)
         )
 
-        self.model = MultiTaskDNAxLSTM(model_config, self.embedding_config).to(self.device)
+        self.model = MultiTaskDNAxLSTM(model_config, self.embedding_config)
+        self.model.reset_parameters()
+        self.model.to(self.device)
+
+    def _setup_optimizer(self):
+        # TODO: CHECK IF THIS WORKS
+        optim_groups = self.model._create_weight_decay_optim_groups()
+
+        self.optimizer = torch.optim.AdamW(
+            [
+                {"params": optim_groups[0], "weight_decay": self.cfg.train.weight_decay},
+                {"params": optim_groups[1], "weight_decay": 0.0},
+            ],
+            lr=self.cfg.train.initial_lr,
+        )
 
     def _setup_training_objects(self):
-        self.optimizer = optim.Adam(self.model.parameters(), lr=self.cfg.train.initial_lr)
+        match self.cfg.train.lr_scheduler.get("type", None):
+            case "linear_warmup_cosine_annealing":
+                steps_per_epoch = math.ceil(len(self.train_dataset) / self.cfg.train.batch_size)
+                total_steps = steps_per_epoch * self.cfg.train.epochs
+                warmup_steps = int(self.cfg.train.lr_scheduler.lr_warmup_steps_ratio * total_steps)
 
-        self.scheduler = optim.lr_scheduler.StepLR(
-            self.optimizer,
-            step_size=self.cfg.train.get("lr_step_size", 10),
-            gamma=self.cfg.train.get("lr_gamma", 0.5)
-        ) if self.cfg.train.get("use_scheduler", True) else None
+                self.scheduler = LinearWarmupCosineAnnealing(
+                    optimizer=self.optimizer,
+                    warmup_steps=warmup_steps,
+                    decay_until_step=total_steps,
+                    max_lr=self.cfg.train.initial_lr,
+                    min_lr=self.cfg.train.lr_scheduler.lr_decay_factor * self.cfg.train.initial_lr,
+                )
+
+            case "step_lr":
+                self.scheduler = torch.optim.lr_scheduler.StepLR(
+                    self.optimizer,
+                    step_size=self.cfg.train.lr_scheduler.get("lr_step_size", 10),
+                    gamma=self.cfg.train.lr_scheduler.get("lr_gamma", 0.5)
+                )
+
+            case _:
+                self.scheduler = None
 
         self.criterion = nn.CrossEntropyLoss(ignore_index=SpecialTokens.PAD)
 
@@ -159,35 +246,12 @@ class MultiTaskDNALearner:
             target_classes = targets[:, :, i]  # (B, T)
             target_flat = target_classes.view(-1)
             logits_flat = logits.view(-1, logits.size(-1))  # (N, V)
-            topk_preds = {}  # cache top-k predictions
 
             for metric_name in self.learner.eval_metrics:
                 if metric_name.startswith("top_k_accuracy@"):
                     k = int(metric_name.split("@")[1])
                     metric = MulticlassAccuracy(num_classes=logits.size(-1), top_k=k).to(self.device)
                     value = metric(logits_flat.to(self.device), target_flat.to(self.device))
-
-                elif metric_name.startswith("top_k_precision@") or \
-                        metric_name.startswith("top_k_recall@") or \
-                        metric_name.startswith("top_k_f1@"):
-                    k = int(metric_name.split("@")[1])
-
-                    if k not in topk_preds:
-                        topk = torch.topk(logits_flat, k=k, dim=-1).indices  # (N, k)
-                        topk_preds[k] = topk
-
-                    topk = topk_preds[k]  # (N, k)
-                    correct = (topk == target_flat.unsqueeze(1)).any(dim=1).float()  # (N,)
-
-                    if metric_name.startswith("top_k_precision@"):
-                        value = correct.mean() / k
-                    elif metric_name.startswith("top_k_recall@"):
-                        value = correct.mean()  # 1 if found in top-k, else 0
-                    elif metric_name.startswith("top_k_f1@"):
-                        prec = correct.mean() / k
-                        rec = correct.mean()
-                        f1 = 2 * (prec * rec) / (prec + rec + 1e-8)
-                        value = f1
 
                 elif metric_name == "perplexity":
                     metric = Perplexity(ignore_index=SpecialTokens.PAD).to(self.device)
@@ -219,7 +283,8 @@ class MultiTaskDNALearner:
             device=self.device,
             compute_loss_fn=self.compute_loss,
             compute_metrics_fn=self.compute_metrics,
-            logger=self.logger
+            logger=self.logger,
+            use_mixed_precision=self.cfg.train.get("use_mixed_precision", False),
         )
 
     @torch.no_grad()
