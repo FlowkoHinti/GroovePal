@@ -1,5 +1,7 @@
 from GrooveModel.Utils.SpecialTokens import SPECIAL_TOKEN_SIZE
 
+# TODO: MAYBE REDUCE RANGE -> LESS VALUES TO PREDICT
+
 OFFSET_TICKS_RESOLUTION = 120  # usable steps excluding special tokens (+-60 ticks) -> 4 grid units per qn -> 480 ticks per qn
 OFFSET_TOKEN_SIZE = OFFSET_TICKS_RESOLUTION + SPECIAL_TOKEN_SIZE  # total size including special tokens
 

@@ -12,12 +12,13 @@ class LearnerState:
     val_loader: DataLoader
     criterion: nn.Module
     max_epochs: int
+    step_based_scheduler: bool
     eval_metrics: List[str] = field(default_factory=list)
-    _current_batch: Optional[int] = None  # optional internal use
 
     # Dynamic values updated during training
     start_epoch: int = 0
     epoch: int = 0
+    global_step: int = 0
     train_loss: float = 0.0
     val_loss: float = 0.0
     metrics: Dict[str, float] = field(default_factory=dict)

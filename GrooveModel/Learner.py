@@ -1,8 +1,7 @@
 # loss function for masked language modelling
 # insert mask tokens into sequence and let model predict sequence without mask tokens I_mask -> I
 # teacher forcing can be a great optimisation as well
-# add loss / training function for the various setups
-import math
+
 from abc import ABC, abstractmethod
 
 import torch
@@ -10,8 +9,6 @@ import torch.nn as nn
 from dacite import from_dict, Config as DaciteConfig
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
-from torchmetrics.classification import MulticlassAccuracy
-from torchmetrics.text import Perplexity
 
 from GrooveModel import Tokenizers, CollateFunctions
 from GrooveModel.Callbacks import CheckpointCallback, EarlyStoppingCallback, PlotLossCurvesCallback, \
@@ -19,12 +16,21 @@ from GrooveModel.Callbacks import CheckpointCallback, EarlyStoppingCallback, Plo
 from GrooveModel.Datasets import DNANextTokenDataset
 from GrooveModel.Embeddings import MultiTaskDNAEmbeddingConfig
 from GrooveModel.LearnerState import LearnerState
+from GrooveModel.Metrics import MultiTaskDNAMetrics
 from GrooveModel.Models import MultiTaskDNAxLSTM, MultiTaskDNAModelConfig
 from GrooveModel.TrainLoop import run_training_loop
 from GrooveModel.Utils.Logger import setup_logger
 from GrooveModel.Utils.SpecialTokens import SpecialTokens
 from GrooveModel.xlstm.experiments.lr_scheduler import LinearWarmupCosineAnnealing
 
+
+def sort_params_by_name(model, params):
+    """Utility to keep the order of params, since xLSTM implementation uses sets.
+    Makes Params deterministic"""
+
+    name_by_param = {p: n for n, p in model.named_parameters()}
+    params = [p for p in params if getattr(p, "requires_grad", True)]
+    return sorted(params, key=lambda p: name_by_param.get(p, ""))
 
 class BaseDNALearner(ABC):
     def __init__(self, cfg: DictConfig):
@@ -64,11 +70,6 @@ class BaseDNALearner(ABC):
     @abstractmethod
     def compute_loss(self, logits, targets) -> torch.Tensor:
         """Compute and return the training loss."""
-        pass
-
-    @abstractmethod
-    def compute_metrics(self, logits, targets) -> dict[str, float]:
-        """Compute and return evaluation metrics."""
         pass
 
     @abstractmethod
@@ -135,44 +136,56 @@ class MultiTaskDNALearner(BaseDNALearner):
         self.model.reset_parameters()
         self.model.to(self.device)
 
+
     def _setup_optimizer(self):
-        # TODO: CHECK IF THIS WORKS
-        optim_groups = self.model._create_weight_decay_optim_groups()
+        # use your existing group creator (don’t modify it)
+        decay, no_decay = self.model._create_weight_decay_optim_groups()
+        # make order deterministic going forward
+        decay = sort_params_by_name(self.model, list(decay))
+        no_decay = sort_params_by_name(self.model, list(no_decay))
 
         self.optimizer = torch.optim.AdamW(
             [
-                {"params": optim_groups[0], "weight_decay": self.cfg.train.weight_decay},
-                {"params": optim_groups[1], "weight_decay": 0.0},
+                {"params": decay, "weight_decay": self.cfg.train.weight_decay},
+                {"params": no_decay, "weight_decay": 0.0},
             ],
             lr=self.cfg.train.initial_lr,
         )
 
     def _setup_training_objects(self):
-        match self.cfg.train.lr_scheduler.get("type", None):
-            case "linear_warmup_cosine_annealing":
-                steps_per_epoch = math.ceil(len(self.train_dataset) / self.cfg.train.batch_size)
-                total_steps = steps_per_epoch * self.cfg.train.epochs
-                warmup_steps = int(self.cfg.train.lr_scheduler.lr_warmup_steps_ratio * total_steps)
+        # pick scheduler
+        sched_type = self.cfg.train.lr_scheduler.get("type", None)
+        if sched_type == "linear_warmup_cosine_annealing":
+            steps_per_epoch = len(self.train_loader)
+            total_steps = steps_per_epoch * self.cfg.train.epochs
+            warmup_steps = int(self.cfg.train.lr_scheduler.lr_warmup_steps_ratio * total_steps)
 
-                self.scheduler = LinearWarmupCosineAnnealing(
-                    optimizer=self.optimizer,
-                    warmup_steps=warmup_steps,
-                    decay_until_step=total_steps,
-                    max_lr=self.cfg.train.initial_lr,
-                    min_lr=self.cfg.train.lr_scheduler.lr_decay_factor * self.cfg.train.initial_lr,
-                )
-
-            case "step_lr":
-                self.scheduler = torch.optim.lr_scheduler.StepLR(
-                    self.optimizer,
-                    step_size=self.cfg.train.lr_scheduler.get("lr_step_size", 10),
-                    gamma=self.cfg.train.lr_scheduler.get("lr_gamma", 0.5)
-                )
-
-            case _:
-                self.scheduler = None
+            self.scheduler = LinearWarmupCosineAnnealing(
+                optimizer=self.optimizer,
+                warmup_steps=warmup_steps,
+                decay_until_step=total_steps,
+                max_lr=self.cfg.train.initial_lr,
+                min_lr=self.cfg.train.lr_scheduler.lr_decay_factor * self.cfg.train.initial_lr,
+            )
+            step_based = True
+        elif sched_type == "step_lr":
+            self.scheduler = torch.optim.lr_scheduler.StepLR(
+                self.optimizer,
+                step_size=self.cfg.train.lr_scheduler.get("lr_step_size", 10),
+                gamma=self.cfg.train.lr_scheduler.get("lr_gamma", 0.5),
+            )
+            step_based = False
+        else:
+            self.scheduler = None
+            step_based = False
 
         self.criterion = nn.CrossEntropyLoss(ignore_index=SpecialTokens.PAD)
+
+        self.metrics = MultiTaskDNAMetrics(
+            metric_names=self.cfg.train.metrics,
+            device=self.device,
+            ignore_index=SpecialTokens.PAD,
+        )
 
         self.learner = LearnerState(
             model=self.model,
@@ -182,6 +195,7 @@ class MultiTaskDNALearner(BaseDNALearner):
             val_loader=self.val_loader,
             criterion=self.criterion,
             max_epochs=self.cfg.train.epochs,
+            step_based_scheduler=step_based,
             eval_metrics=self.cfg.train.metrics,
         )
 
@@ -190,13 +204,17 @@ class MultiTaskDNALearner(BaseDNALearner):
             CheckpointCallback(
                 save_dir=self.cfg.train.save_dir,
                 model_name=self.cfg.train.model_name,
+                device=self.device,
                 logger=self.logger,
                 monitor=self.cfg.train.get("monitor", "val_loss"),
                 mode=self.cfg.train.get("mode", "min"),
-                load_best=self.cfg.train.get("load_best", False),
+                load_best_on_start=(self.cfg.train.get("load_best_on_start", False)),
             ),
             EarlyStoppingCallback(
+                monitor=self.cfg.train.get("monitor", "val_loss"),
                 patience=self.cfg.train.get("patience", 5),
+                min_delta=self.cfg.train.get("min_delta", 0.0),
+                mode=self.cfg.train.get("mode", "min"),
                 logger=self.logger
             ),
             PlotLossCurvesCallback(
@@ -223,6 +241,8 @@ class MultiTaskDNALearner(BaseDNALearner):
         self.callback_manager = CallbackManager(self.callbacks)
 
     def compute_loss(self, logits_dict: dict[str, torch.Tensor], targets: torch.Tensor) -> torch.Tensor:
+        # TODO: MAYBE CALCULATE DIFFERENTLY PER HEAD -> close velocities are ok -> instruments should be correctly matched
+        # TODO: MAYBE DONT AVG THE LOSS OVER ALL HEADS BUT ADD WEIGHTS TO EACH SEPARATELY
         total_loss = 0.0
         num_heads = len(logits_dict)
 
@@ -235,54 +255,13 @@ class MultiTaskDNALearner(BaseDNALearner):
 
         return total_loss / num_heads
 
-    def compute_metrics(self, logits_dict: dict[str, torch.Tensor], targets: torch.Tensor) -> dict[str, float]:
-        results = {}
-        metric_sums = {}
-        metric_counts = {}
-
-        for i, (head, logits) in enumerate(logits_dict.items()):
-            head_results = {}
-
-            target_classes = targets[:, :, i]  # (B, T)
-            target_flat = target_classes.view(-1)
-            logits_flat = logits.view(-1, logits.size(-1))  # (N, V)
-
-            for metric_name in self.learner.eval_metrics:
-                if metric_name.startswith("top_k_accuracy@"):
-                    k = int(metric_name.split("@")[1])
-                    metric = MulticlassAccuracy(num_classes=logits.size(-1), top_k=k).to(self.device)
-                    value = metric(logits_flat.to(self.device), target_flat.to(self.device))
-
-                elif metric_name == "perplexity":
-                    metric = Perplexity(ignore_index=SpecialTokens.PAD).to(self.device)
-                    value = metric(logits.to(self.device), target_classes.to(self.device))
-
-                else:
-                    raise ValueError(f"Unsupported metric: {metric_name}")
-
-                value_scalar = value.item() if hasattr(value, 'item') else float(value)
-                head_results[f"{head}/{metric_name}"] = value_scalar
-
-                metric_sums.setdefault(metric_name, 0.0)
-                metric_counts.setdefault(metric_name, 0)
-                metric_sums[metric_name] += value_scalar
-                metric_counts[metric_name] += 1
-
-            results.update(head_results)
-
-        for metric_name in metric_sums:
-            avg_value = metric_sums[metric_name] / metric_counts[metric_name]
-            results[f"avg_{metric_name}"] = avg_value
-
-        return results
-
     def train(self):
         run_training_loop(
             learner=self.learner,
             callback_manager=self.callback_manager,
             device=self.device,
             compute_loss_fn=self.compute_loss,
-            compute_metrics_fn=self.compute_metrics,
+            metrics=self.metrics,
             logger=self.logger,
             use_mixed_precision=self.cfg.train.get("use_mixed_precision", False),
         )

@@ -2,7 +2,6 @@ import argparse
 import torch
 from omegaconf import OmegaConf
 
-
 from Configs import BASE_PATH, MAX_SEQUENCE_LENGTH, RNG_SEED
 from GrooveModel.Learner import MultiTaskDNALearner
 

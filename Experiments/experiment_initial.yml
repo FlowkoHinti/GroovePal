@@ -1,7 +1,7 @@
 dataset:
   dna_path: Data/pre_training          # Folder containing subfolders: train/, val/, test/
   convert_to_tensor: true              # Convert token sequences to tensors
-  #subset: 10000                         # (Optional) Load only the first N samples
+  #subset: 1000                         # (Optional) Load only the first N samples
   shuffle: true                        # Shuffle the dataset in the DataLoader
   num_workers: 4                       # Data loading parallelism
 
@@ -13,17 +13,17 @@ embedding:
   instruments:
     embedding_dim: 4
   velocities:
-    embedding_dim: 8
+    embedding_dim: 32
   offsets:
-    embedding_dim: 8
+    embedding_dim: 24
   time_signature:
     embedding_dim: 4
   grid_factor:
-    embedding_dim: 4
+    embedding_dim: 2
   bpm:
     embedding_dim: 8
   beat_units:
-    embedding_dim: 8
+    embedding_dim: 12
     absolute_beat_units: false
   normalize_embeddings: false
 
@@ -52,7 +52,7 @@ model:
   slstm_at: [7, 13]
 
 train:
-  model_name: mt_relgu_nopos
+  model_name: multitask_pretrain_relBU_noPosEnc
   save_dir: Models
   device: cuda
   batch_size: 32
@@ -65,8 +65,8 @@ train:
   monitor: val_loss
   mode: min
   patience: 5
-  load_best: false
-  metrics: ['top_k_accuracy@1','top_k_accuracy@3', 'perplexity']
+  load_best_on_start: false
+  metrics: ['accuracy','top_k_accuracy@3', 'perplexity']
 
   lr_scheduler:
     type: linear_warmup_cosine_annealing # lr_step

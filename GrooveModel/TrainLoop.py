@@ -1,94 +1,101 @@
 import logging
-from typing import Callable, Dict, Any
+from typing import Callable, Optional
 
 import torch
+from torch import optim
+from torch.amp import autocast
 from tqdm import tqdm
-from torch.cuda.amp import autocast, GradScaler
 
 from GrooveModel.Callbacks import CallbackManager
 from GrooveModel.LearnerState import LearnerState
+from GrooveModel.Metrics import BaseMetrics
 
 
 def run_training_loop(
-    learner: LearnerState,
-    callback_manager: CallbackManager,
-    device: torch.device,
-    compute_loss_fn: Callable[..., torch.Tensor],
-    compute_metrics_fn: Callable[..., Dict[str, float]],
-    logger: logging.Logger,
-    use_mixed_precision: bool = False
+        learner: LearnerState,
+        callback_manager: CallbackManager,
+        device: torch.device,
+        compute_loss_fn: Callable[..., torch.Tensor],
+        metrics: BaseMetrics,
+        logger: Optional[logging.Logger] = None,
+        use_mixed_precision: bool = False
 ) -> None:
+    """Training loop with grad-clipping hooks, AMP, tqdm, and streaming metrics."""
     callback_manager.call("on_train_begin", learner)
 
     for epoch in range(learner.start_epoch, learner.max_epochs):
         learner.epoch = epoch
         callback_manager.call("on_epoch_begin", learner)
 
-        # Training phase
+        # ---- Train ----
         learner.model.train()
         total_loss = 0.0
 
-        for batch in tqdm(learner.train_loader, desc=f"Epoch {epoch}"):
+        for batch in tqdm(learner.train_loader, desc=f"Train Epoch {epoch}", leave=False):
             callback_manager.call("on_batch_begin", learner)
 
             inputs, targets = batch[0].to(device), batch[1].to(device)
-            learner.optimizer.zero_grad()
+            learner.optimizer.zero_grad(set_to_none=True)
 
             if use_mixed_precision:
-                with autocast(dtype=torch.bfloat16):
+                with autocast(device.type, dtype=torch.bfloat16):
                     outputs = learner.model(inputs)
                     loss = compute_loss_fn(outputs, targets)
-                loss.backward()
-                learner.optimizer.step()
             else:
                 outputs = learner.model(inputs)
                 loss = compute_loss_fn(outputs, targets)
-                loss.backward()
-                learner.optimizer.step()
 
-            total_loss += loss.item()
+            loss.backward()
+
+            callback_manager.call("on_after_backward", learner)        # e.g., gradient clipping
+
+            learner.optimizer.step()
+
+            if learner.scheduler is not None and learner.step_based_scheduler:
+                learner.scheduler.step()
+
+            total_loss += float(loss.item())
+            learner.global_step += 1
             callback_manager.call("on_batch_end", learner)
 
-        learner.train_loss = total_loss / len(learner.train_loader)
+        learner.train_loss = total_loss / max(1, len(learner.train_loader))
 
-        # Validation phase
+        # ---- Validate ----
         learner.model.eval()
         total_val_loss = 0.0
-        all_metrics = {}
+        metrics.reset()
 
         with torch.no_grad():
-            for batch in learner.val_loader:
+            for batch in tqdm(learner.val_loader, desc=f"Validation Epoch {epoch}", leave=False):
                 inputs, targets = batch[0].to(device), batch[1].to(device)
 
                 if use_mixed_precision:
-                    with autocast(dtype=torch.bfloat16):
+                    with autocast(device.type, dtype=torch.bfloat16):
                         outputs = learner.model(inputs)
                         loss = compute_loss_fn(outputs, targets)
                 else:
                     outputs = learner.model(inputs)
                     loss = compute_loss_fn(outputs, targets)
 
-                total_val_loss += loss.item()
+                total_val_loss += float(loss.item())
+                metrics.update_batch(outputs, targets)
 
-                # Compute metrics
-                batch_metrics = compute_metrics_fn(outputs, targets)
-                for k, v in batch_metrics.items():
-                    if k not in all_metrics:
-                        all_metrics[k] = 0.0
-                    all_metrics[k] += v
+        num_val_batches = max(1, len(learner.val_loader))
+        learner.val_loss = total_val_loss / num_val_batches
+        learner.metrics = metrics.compute_all()
 
-        # Average loss and metrics over all batches
-        num_batches = len(learner.val_loader)
-        learner.val_loss = total_val_loss / num_batches
-        learner.metrics = {k: v / num_batches for k, v in all_metrics.items()}
-
-        if learner.scheduler:
-            learner.scheduler.step()
+        # ---- Epoch schedulers ----
+        if learner.scheduler is not None and not learner.step_based_scheduler:
+            if isinstance(learner.scheduler, optim.lr_scheduler.ReduceLROnPlateau):
+                learner.scheduler.step(learner.val_loss)
+            else:
+                learner.scheduler.step()
 
         callback_manager.call("on_epoch_end", learner)
 
         if callback_manager.state.get("early_stop", False):
-            logger.warning("Early stopping triggered.")
+            if logger:
+                logger.warning("Early stopping triggered.")
             break
 
     callback_manager.call("on_train_end", learner)
