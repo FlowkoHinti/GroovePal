@@ -99,10 +99,10 @@ class MultiTaskDNALearner(BaseDNALearner):
         ds_conf = self.cfg.dataset
 
         self.train_dataset = DNANextTokenDataset(
-            ds_conf, split="train", tokenizer=Tokenizers.MultiTaskDNATokenizer
+            ds_conf, split="train", tokenizer=Tokenizers.MultiTaskDnaTokenizer
         )
         self.val_dataset = DNANextTokenDataset(
-            ds_conf, split="validation", tokenizer=Tokenizers.MultiTaskDNATokenizer
+            ds_conf, split="validation", tokenizer=Tokenizers.MultiTaskDnaTokenizer
         )
         # self.test_dataset = DNANextTokenDataset(
         #     ds_conf, split="test", tokenizer=Tokenizers.MultiTaskDNATokenizer

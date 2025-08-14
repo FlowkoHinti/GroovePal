@@ -70,24 +70,24 @@ class TestDnaValueEncoding(unittest.TestCase):
 class TestGridFactorEncoding(unittest.TestCase):
 
     def test_grid_factor_enum_values(self):
-        self.assertEqual(GridFactors.Quarter, 1)
-        self.assertEqual(GridFactors.Eighth, 2)
-        self.assertEqual(GridFactors.EighthTriplet, 3)
-        self.assertEqual(GridFactors.Sixteenth, 4)
-        self.assertEqual(GridFactors.SixteenthTriplet, 6)
+        self.assertEqual(GridFactors.Quarter_Grid, 1)
+        self.assertEqual(GridFactors.Eighth_Grid, 2)
+        self.assertEqual(GridFactors.EighthTriplet_Grid, 3)
+        self.assertEqual(GridFactors.Sixteenth_Grid, 4)
+        self.assertEqual(GridFactors.SixteenthTriplet_Grid, 6)
 
     def test_remapped_enum_auto_increment(self):
-        self.assertEqual(RemappedGridFactors.Quarter, SPECIAL_TOKEN_SIZE)
-        self.assertEqual(RemappedGridFactors.Eighth, SPECIAL_TOKEN_SIZE + 1)
-        self.assertEqual(RemappedGridFactors.SixteenthTriplet, SPECIAL_TOKEN_SIZE + 4)
+        self.assertEqual(RemappedGridFactors.Quarter_Grid, SPECIAL_TOKEN_SIZE)
+        self.assertEqual(RemappedGridFactors.Eighth_Grid, SPECIAL_TOKEN_SIZE + 1)
+        self.assertEqual(RemappedGridFactors.SixteenthTriplet_Grid, SPECIAL_TOKEN_SIZE + 4)
 
     def test_encode_grid_factor(self):
-        self.assertEqual(encode_grid_factor(GridFactors.Quarter), RemappedGridFactors.Quarter)
-        self.assertEqual(encode_grid_factor(GridFactors.SixteenthTriplet), RemappedGridFactors.SixteenthTriplet)
+        self.assertEqual(encode_grid_factor(GridFactors.Quarter_Grid), RemappedGridFactors.Quarter_Grid)
+        self.assertEqual(encode_grid_factor(GridFactors.SixteenthTriplet_Grid), RemappedGridFactors.SixteenthTriplet_Grid)
 
     def test_decode_grid_factor(self):
-        self.assertEqual(decode_grid_factor(RemappedGridFactors.EighthTriplet), GridFactors.EighthTriplet)
-        self.assertEqual(decode_grid_factor(RemappedGridFactors.Sixteenth), GridFactors.Sixteenth)
+        self.assertEqual(decode_grid_factor(RemappedGridFactors.EighthTriplet_Grid), GridFactors.EighthTriplet_Grid)
+        self.assertEqual(decode_grid_factor(RemappedGridFactors.Sixteenth_Grid), GridFactors.Sixteenth_Grid)
 
     def test_round_trip_conversion(self):
         for factor in GridFactors:

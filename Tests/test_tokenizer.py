@@ -1,6 +1,6 @@
 import unittest
 
-from GrooveModel.Tokenizers import MultiTaskDNATokenizer, DNAToken
+from GrooveModel.Tokenizers import MultiTaskDnaTokenizer, MultiDnaToken
 from GrooveModel.Utils.DNAOffset import decode_offset_ticks
 from GrooveModel.Utils.BeatUnit import decode_beat_unit
 from GrooveModel.Utils.BeatsPerMinute import decode_bpm
@@ -26,11 +26,11 @@ class TestMultiDimDNATokenizer(unittest.TestCase):
             ]
         }
 
-        tokens = MultiTaskDNATokenizer.tokenize(song)
+        tokens = MultiTaskDnaTokenizer.tokenize(song)
         self.assertEqual(len(tokens), 1)
 
         token = tokens[0]
-        self.assertIsInstance(token, DNAToken)
+        self.assertIsInstance(token, MultiDnaToken)
         self.assertGreater(token.Instrument, 0)
         self.assertGreater(token.Velocity, 0)
         self.assertEqual(decode_beat_unit(token.BeatUnit, absolute=False), 0)
@@ -55,7 +55,7 @@ class TestMultiDimDNATokenizer(unittest.TestCase):
             ]
         }
 
-        tokens = MultiTaskDNATokenizer.tokenize(song)
+        tokens = MultiTaskDnaTokenizer.tokenize(song)
         self.assertEqual(len(tokens), 2)
         self.assertEqual(len(set(t.Instrument for t in tokens)), 2)
 
@@ -72,7 +72,7 @@ class TestMultiDimDNATokenizer(unittest.TestCase):
             )
         }
 
-        tokens = MultiTaskDNATokenizer.tokenize(song, trim_leading_empty_measures=True)
+        tokens = MultiTaskDnaTokenizer.tokenize(song, trim_leading_empty_measures=True)
         self.assertEqual(len(tokens), 1)
         self.assertEqual(decode_beat_unit(tokens[0].BeatUnit, absolute=False), 0)
 
@@ -93,7 +93,7 @@ class TestMultiDimDNATokenizer(unittest.TestCase):
             ] * 8
         }
 
-        tokens = MultiTaskDNATokenizer.tokenize(song, absolute_grid_units=True)
+        tokens = MultiTaskDnaTokenizer.tokenize(song, absolute_grid_units=True)
         self.assertEqual(len(tokens), 8)
         for i, token in enumerate(tokens):
             self.assertEqual(decode_beat_unit(token.BeatUnit, absolute=True), i)
@@ -116,7 +116,7 @@ class TestMultiDimDNATokenizer(unittest.TestCase):
             ]
         }
 
-        tokens = MultiTaskDNATokenizer.tokenize(song)
+        tokens = MultiTaskDnaTokenizer.tokenize(song)
         self.assertEqual(len(tokens), 3)
 
         for token in tokens:
@@ -133,7 +133,7 @@ class TestMultiDimDNATokenizer(unittest.TestCase):
             "DNAUnits": [{"Value": 0, "IsEmpty": True} for _ in range(4)]
         }
 
-        tokens = MultiTaskDNATokenizer.tokenize(song)
+        tokens = MultiTaskDnaTokenizer.tokenize(song)
         self.assertEqual(len(tokens), 0)
 
     def test_offset_encoding_edge_case(self):
@@ -153,7 +153,7 @@ class TestMultiDimDNATokenizer(unittest.TestCase):
             ]
         }
 
-        tokens = MultiTaskDNATokenizer.tokenize(song)
+        tokens = MultiTaskDnaTokenizer.tokenize(song)
         self.assertEqual(len(tokens), 1)
         offset = decode_offset_ticks(tokens[0].BeatUnitOffset, ticks_per_grid_unit=960)
         self.assertEqual(offset, 960)
@@ -168,7 +168,7 @@ class TestMultiDimDNATokenizer(unittest.TestCase):
             "DNAUnits": []
         }
 
-        tokens = MultiTaskDNATokenizer.tokenize(song)
+        tokens = MultiTaskDnaTokenizer.tokenize(song)
         self.assertEqual(tokens, [])
 
 

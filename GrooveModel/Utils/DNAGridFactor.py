@@ -4,19 +4,19 @@ from GrooveModel.Utils.SpecialTokens import SPECIAL_TOKEN_SIZE
 
 
 class GridFactors(IntEnum):
-    Quarter = 1
-    Eighth = 2
-    Sixteenth = 4
-    EighthTriplet = 3
-    SixteenthTriplet = 6
+    Quarter_Grid = 1
+    Eighth_Grid = 2
+    Sixteenth_Grid = 4
+    EighthTriplet_Grid = 3
+    SixteenthTriplet_Grid = 6
 
 
 class RemappedGridFactors(IntEnum):
-    Quarter = SPECIAL_TOKEN_SIZE
-    Eighth = auto()
-    Sixteenth = auto()
-    EighthTriplet = auto()
-    SixteenthTriplet = auto()
+    Quarter_Grid = SPECIAL_TOKEN_SIZE
+    Eighth_Grid = auto()
+    Sixteenth_Grid = auto()
+    EighthTriplet_Grid = auto()
+    SixteenthTriplet_Grid = auto()
 
 
 GRID_FACTOR_TOKEN_SIZE = len(GridFactors) + SPECIAL_TOKEN_SIZE

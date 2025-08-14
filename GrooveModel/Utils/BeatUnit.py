@@ -3,7 +3,7 @@ from GrooveModel.Utils.TimeSignatures import decode_time_signature, RemappedTime
 from GrooveModel.Utils.SpecialTokens import SPECIAL_TOKEN_SIZE
 from Configs import MAX_SEQUENCE_LENGTH
 
-MAX_GRID_UNITS_PER_BAR = GridFactors.SixteenthTriplet * decode_time_signature(RemappedTimeSignatures.Time_12_8)[0]
+MAX_GRID_UNITS_PER_BAR = GridFactors.SixteenthTriplet_Grid * decode_time_signature(RemappedTimeSignatures.Time_12_8)[0]
 MAX_GRID_UNITS_PER_SONG = MAX_SEQUENCE_LENGTH
 
 # Token vocab sizes
@@ -11,7 +11,7 @@ BEAT_UNIT_TOKEN_SIZE_RELATIVE = MAX_GRID_UNITS_PER_BAR + SPECIAL_TOKEN_SIZE
 BEAT_UNIT_TOKEN_SIZE_ABSOLUTE = MAX_GRID_UNITS_PER_SONG + SPECIAL_TOKEN_SIZE
 
 
-def encode_beat_unit(position: int, absolute: bool = False) -> int:
+def encode_beat_unit(position: int, absolute: bool = False, include_padding:bool = True) -> int:
     """
     Encodes a beat unit (grid position) into a token ID with special token offset.
 
@@ -24,10 +24,10 @@ def encode_beat_unit(position: int, absolute: bool = False) -> int:
     if not (0 <= position < max_val):
         raise ValueError(f"Beat unit position out of bounds: {position} (max allowed: {max_val - 1})")
 
-    return position + SPECIAL_TOKEN_SIZE
+    return position + SPECIAL_TOKEN_SIZE if include_padding else position
 
 
-def decode_beat_unit(token: int, absolute: bool = False) -> int:
+def decode_beat_unit(token: int, absolute: bool = False, include_padding:bool = True) -> int:
     """
     Decodes a token ID back to a grid unit position.
 
@@ -35,7 +35,7 @@ def decode_beat_unit(token: int, absolute: bool = False) -> int:
     :param absolute: Whether the original value was absolute or relative.
     :return: Position in grid units.
     """
-    position = token - SPECIAL_TOKEN_SIZE
+    position = token - SPECIAL_TOKEN_SIZE if include_padding else token
     max_val = MAX_GRID_UNITS_PER_SONG if absolute else MAX_GRID_UNITS_PER_BAR
 
     if not (0 <= position < max_val):

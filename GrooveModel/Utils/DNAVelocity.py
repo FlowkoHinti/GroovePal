@@ -9,7 +9,7 @@ VELOCITY_RESOLUTION = (VELOCITY_MAX - VELOCITY_MIN) + 1  # 128
 VELOCITY_TOKEN_SIZE = VELOCITY_RESOLUTION + SPECIAL_TOKEN_SIZE
 
 
-def encode_velocity(velocity: float, resolution: int = VELOCITY_RESOLUTION) -> int:
+def encode_velocity(velocity: float, resolution: int = VELOCITY_RESOLUTION, include_padding=True) -> int:
     """
     Quantize a velocity value in [0, 1] into a discrete velocity index with special token offset.
     :param velocity: Normalized float in [0, 1].
@@ -23,15 +23,16 @@ def encode_velocity(velocity: float, resolution: int = VELOCITY_RESOLUTION) -> i
         steps += 1
 
     steps = min(steps, resolution - 1)
-    return steps + SPECIAL_TOKEN_SIZE
+
+    return steps + SPECIAL_TOKEN_SIZE if include_padding else steps
 
 
-def decode_velocity(encoded_velocity: int, resolution: int = VELOCITY_RESOLUTION) -> float:
+def decode_velocity(encoded_velocity: int, resolution: int = VELOCITY_RESOLUTION, include_padding=True) -> float:
     """
     Decode a velocity index back into a normalized [0, 1] float.
     :param encoded_velocity: Encoded velocity index including SPECIAL_TOKEN_SIZE offset.
     :param resolution: Number of steps used (default 128).
     :return: Normalized float velocity in [0, 1].
     """
-    index = encoded_velocity - SPECIAL_TOKEN_SIZE
+    index = encoded_velocity - SPECIAL_TOKEN_SIZE if include_padding else encoded_velocity
     return index / (resolution - 1)
