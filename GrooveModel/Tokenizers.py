@@ -242,12 +242,12 @@ class SequentialDnaTokenizer(DnaTokenizer):
         return torch.tensor(token_ids, dtype=torch.long)
 
 
-test_json = '../Data/unit_test/dnas.json'
-with open(test_json, 'r') as f:
-    test_json = json.load(f)
-
-test_json = test_json[0]
-SequentialDnaTokenizer.tokenize(test_json, trim_leading_empty_measures=True)
+# test_json = '../Data/unit_test/dnas.json'
+# with open(test_json, 'r') as f:
+#     test_json = json.load(f)
+#
+# test_json = test_json[0]
+# SequentialDnaTokenizer.tokenize(test_json, trim_leading_empty_measures=True)
 
 #TODO: make it cleaner and faster
 #TODO: truncate and padding

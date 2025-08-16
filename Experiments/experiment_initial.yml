@@ -13,17 +13,17 @@ embedding:
   instruments:
     embedding_dim: 4
   velocities:
-    embedding_dim: 32
+    embedding_dim: 8
   offsets:
-    embedding_dim: 24
+    embedding_dim: 8
   time_signature:
     embedding_dim: 4
   grid_factor:
-    embedding_dim: 2
+    embedding_dim: 4
   bpm:
     embedding_dim: 8
   beat_units:
-    embedding_dim: 12
+    embedding_dim: 8
     absolute_beat_units: false
   normalize_embeddings: false
 
@@ -52,10 +52,10 @@ model:
   slstm_at: [7, 13]
 
 train:
-  model_name: multitask_pretrain_relBU_noPosEnc
+  model_name: mt_relgu_nopos
   save_dir: Models
   device: cuda
-  batch_size: 32
+  batch_size: 1
   epochs: 10
 
   initial_lr: 0.001
