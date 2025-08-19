@@ -55,7 +55,7 @@ train:
   model_name: multitask_relGridUnits_mixedLoss
   save_dir: Models
   device: cuda
-  batch_size: 32
+  batch_size: 16
   epochs: 10
 
   initial_lr: 0.001
