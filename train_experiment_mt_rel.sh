@@ -38,4 +38,4 @@ set -u   # restore strict mode
 cd /data/fhinterberger/GroovePal
 
 # ===== RUN =====
-python Main.py --experiment_multitask_relgu_mixedloss --train
+python Main.py --train experiment_multitask_relgu_mixedloss
