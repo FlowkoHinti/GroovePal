@@ -178,7 +178,7 @@ class MultiTaskDnaTokenizer(DnaTokenizer):
 
             for instrument in instruments:
                 encoded_velocity = encode_velocity(velocities.get(str(instrument), 0))
-                encoded_offset = encode_offset_ticks(offsets.get(str(instrument), 0), song_data.ticks_per_grid_unit)
+                encoded_offset = encode_offset_ticks(offsets.get(str(instrument), 0), song_data.ticks_per_grid_unit, start_at_zero=True)
 
                 tokens.append(MultiDnaToken(
                     Instrument=encode_instrument(instrument),

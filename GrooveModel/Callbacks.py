@@ -105,7 +105,7 @@ class CheckpointCallback(Callback):
         self._gpu_util_sampled: Optional[float] = None
         self._cpu_util_sampled: Optional[float] = None
 
-        # NVML
+        # NVML (unchanged)
         self._nvml_init_done = False
         self._nvml_error = None
         if _NVML_OK:
@@ -118,7 +118,7 @@ class CheckpointCallback(Callback):
                 self._nvml_error = repr(e)
                 self.logger.warning(f"[Checkpoint] NVML init failed: {self._nvml_error}")
 
-    # ---- Helpers ----
+    # ---- Helpers (unchanged + new helper for loss vars) ----
     def _to_mb(self, bytes_val: Optional[int]) -> Optional[float]:
         return round(bytes_val / (1024**2), 2) if bytes_val is not None else None
 
@@ -196,6 +196,17 @@ class CheckpointCallback(Callback):
             self.logger.error(f"[Checkpoint] Failed to load '{path}': {e}")
             return None
 
+    def _extract_loss_log_vars(self, criterion: torch.nn.Module) -> Optional[Dict[str, float]]:
+        """
+        If the loss has learnable per-task log-variances (e.g., criterion.log_vars),
+        record them for the stats JSONL (helps debugging/plotting).
+        """
+        try:
+            if hasattr(criterion, "log_vars"):
+                return {k: float(v.detach().cpu().item()) for k, v in criterion.log_vars.items()}
+        except Exception:
+            pass
+        return None
 
     # ---- Hooks ----
     def on_train_begin(self, learner):
@@ -206,20 +217,26 @@ class CheckpointCallback(Callback):
             self.state["best_value"] = float(best_ckpt["monitor_value"])
             self.logger.info(f"[Checkpoint] Loaded best value={self.state['best_value']:.6f}")
 
-        ckpt = None
         if self.load_best_on_start:
             ckpt = best_ckpt or self._load_checkpoint(self.latest_path)
             src = "best" if best_ckpt is not None else "latest"
         else:
-            ckpt = self._load_checkpoint(self.latest_path) or best_ckpt
-            src = "latest" if (ckpt is not None and ckpt is not best_ckpt) else "best"
+            latest = self._load_checkpoint(self.latest_path)
+            ckpt = latest or best_ckpt
+            src = "latest" if latest is not None else "best"
 
         if ckpt is not None:
             self.logger.info(f"[Checkpoint] Resuming from {src} checkpoint (epoch {ckpt.get('epoch', -1)}).")
             learner.model.load_state_dict(ckpt["model_state_dict"])
+            # NEW: restore criterion (loss) state if present
+            if ckpt.get("criterion_state_dict") is not None:
+                try:
+                    learner.criterion.load_state_dict(ckpt["criterion_state_dict"])
+                except Exception as e:
+                    self.logger.warning(f"[Checkpoint] Criterion state not loaded: {e}")
+            # Optimizer & scheduler (as before)
             try:
                 learner.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
-
             except Exception as e:
                 self.logger.warning(f"[Checkpoint] Optimizer state not loaded: {e}")
             if learner.scheduler is not None and ckpt.get("scheduler_state_dict"):
@@ -259,6 +276,9 @@ class CheckpointCallback(Callback):
         gpu_util = self._gpu_util_sampled
         cpu_util = self._cpu_util_sampled
 
+        # NEW: snapshot current loss weights if available
+        loss_log_vars = self._extract_loss_log_vars(learner.criterion)
+
         stats_snapshot = {
             "epoch": int(learner.epoch),
             "global_step": int(learner.global_step),
@@ -275,6 +295,7 @@ class CheckpointCallback(Callback):
             "gpu_util_percent": gpu_util,
             "cpu_util_percent": cpu_util,
             "device": str(self.device) if self.device is not None else None,
+            "loss_log_vars": loss_log_vars,
         }
 
         monitor_value = self._monitored_value(learner)
@@ -292,11 +313,12 @@ class CheckpointCallback(Callback):
             "val_loss": float(learner.val_loss),
             "step_based_scheduler": bool(learner.step_based_scheduler),
             "model_state_dict": learner.model.state_dict(),
+            "criterion_state_dict": (learner.criterion.state_dict() if hasattr(learner.criterion, "state_dict") else None),
             "optimizer_state_dict": learner.optimizer.state_dict(),
             "scheduler_state_dict": (learner.scheduler.state_dict() if learner.scheduler else None),
         }
 
-        # Save latest
+        # Save latest (atomic)
         tmp_latest = self.latest_path.with_suffix(".pt.tmp")
         torch.save(ckpt, tmp_latest)
         os.replace(tmp_latest, self.latest_path)
@@ -471,13 +493,13 @@ class PlotLossCurvesCallback(Callback):
 
     def _plot_losses(self, epochs: List[int], train: List[float], val: List[float]):
         plt.figure(figsize=self.figsize)
-        plt.plot(epochs, train, label="Train Loss", marker="o",
+        plt.plot(epochs, train, label="Train Objective", marker="o",
                  color=self.train_color, linewidth=self.linewidth)
-        plt.plot(epochs, val, label="Validation Loss", marker="o",
+        plt.plot(epochs, val, label="Val Objective", marker="o",
                  color=self.val_color, linewidth=self.linewidth)
         plt.xlabel("Epoch")
-        plt.ylabel("Cross-Entropy Loss")
-        plt.title("Loss Curves")
+        plt.ylabel("Objective (weighted loss)")
+        plt.title("Objective/Loss Curves")
         plt.xticks(epochs)
         plt.legend()
         plt.grid(True)

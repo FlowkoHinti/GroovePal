@@ -1,13 +1,12 @@
 from dataclasses import dataclass
+from typing import Sequence
 
 import torch
 from torch import nn
-from typing import Sequence
 
-from Configs import RNG_SEED
 from GrooveModel.Embeddings import MultiTaskDNAEmbeddingConfig, MultiTaskDNAEmbedding
-from GrooveModel.Vocab import INSTRUMENT_VOCAB_SIZE, VELOCITY_VOCAB_SIZE, BEAT_UNIT_ABSOLUTE_VOCAB_SIZE, \
-    BEAT_UNIT_RELATIVE_VOCAB_SIZE, OFFSET_VOCAB_SIZE, TIME_SIGNATURE_VOCAB_SIZE, GRID_FACTOR_VOCAB_SIZE, BPM_VOCAB_SIZE
+from GrooveModel.Vocab import INSTRUMENT_VOCAB_SIZE, BEAT_UNIT_ABSOLUTE_VOCAB_SIZE, \
+    BEAT_UNIT_RELATIVE_VOCAB_SIZE, TIME_SIGNATURE_VOCAB_SIZE, GRID_FACTOR_VOCAB_SIZE, BPM_VOCAB_SIZE
 from GrooveModel.xlstm.xlstm import xLSTMBlockStack, xLSTMBlockStackConfig
 from GrooveModel.xlstm.xlstm.components.init import small_init_init_
 from GrooveModel.xlstm.xlstm.utils import WeightDecayOptimGroupMixin
@@ -18,6 +17,7 @@ class MultiTaskDNAModelConfig(xLSTMBlockStackConfig):
     tie_weights: bool = False
     weight_decay_on_embedding: bool = False
     add_embedding_dropout: bool = False
+
 
 class MultiTaskDNAxLSTM(WeightDecayOptimGroupMixin, nn.Module):
     config_class = MultiTaskDNAModelConfig
@@ -32,18 +32,23 @@ class MultiTaskDNAxLSTM(WeightDecayOptimGroupMixin, nn.Module):
         # self.positional_encoding = BeatPositionalEncoding(embedding_dim=self.token_embedding.embedding_dim)
         self.emb_dropout = nn.Dropout(model_config.dropout) if model_config.add_embedding_dropout else nn.Identity()
 
-        # TODO: MAYBE USE REGRESSION HEADS FOR VELOCITY and OFFSET
-        self.multi_output_head = nn.ModuleDict({
-            name: nn.Linear(self.token_embedding.embedding_dim, vocab_size, bias=False)
+        # TODO: MAYBE BEATUNIT ALSO AS REGRESSION
+        self.classification_heads = nn.ModuleDict({
+            name: nn.Linear(self.token_embedding.embedding_dim, vocab_size)
             for name, vocab_size in {
                 'instrument': INSTRUMENT_VOCAB_SIZE,
-                'velocity': VELOCITY_VOCAB_SIZE,
                 'beat_unit': BEAT_UNIT_ABSOLUTE_VOCAB_SIZE if embedding_config.beat_units.absolute_beat_units else BEAT_UNIT_RELATIVE_VOCAB_SIZE,
-                'offset': OFFSET_VOCAB_SIZE,
                 'grid_factor': GRID_FACTOR_VOCAB_SIZE,
                 'bpm': BPM_VOCAB_SIZE,
                 'time_signature': TIME_SIGNATURE_VOCAB_SIZE,
             }.items()
+        })
+
+        self.regression_heads = nn.ModuleDict({
+            'velocity': nn.Sequential(nn.Linear(self.token_embedding.embedding_dim, 1),
+                                      nn.Sigmoid()),
+            'offset': nn.Sequential(nn.Linear(self.token_embedding.embedding_dim, 1),
+                                    nn.Tanh())
         })
         # TODO: Think about implementing tie weights (model only learns 1 representation):
         # same weights for input and output: https://arxiv.org/abs/1608.05859
@@ -63,27 +68,33 @@ class MultiTaskDNAxLSTM(WeightDecayOptimGroupMixin, nn.Module):
             small_init_init_(embedding.weight, dim=embedding.embedding_dim)
 
         # Initialize head weights
-        for output_head in self.multi_output_head.keys():
-            small_init_init_(self.multi_output_head[output_head].weight, dim=self.token_embedding.embedding_dim)
+        for output_head in self.classification_heads.keys():
+            small_init_init_(self.classification_heads[output_head].weight, dim=self.token_embedding.embedding_dim)
+        for output_head in self.regression_heads.keys():
+            small_init_init_(self.regression_heads[output_head][0].weight, dim=self.token_embedding.embedding_dim)
 
-    def forward(self, idx: torch.Tensor) -> dict[str, torch.Tensor]:
+    def forward(self, idx: torch.Tensor) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
         x = self.token_embedding(idx)
         x = self.emb_dropout(x)
         x = self.xlstm_block_stack(x)
-        logits = {head: layer(x) for head, layer in self.multi_output_head.items()}
-        return logits
+        logits = {head: layer(x) for head, layer in self.classification_heads.items()}
+        reg_outputs = {head: layer(x) for head, layer in self.regression_heads.items()}
+
+        return logits, reg_outputs
 
     def step(
             self,
             idx: torch.Tensor,
             state: dict[str, dict[str, tuple[torch.Tensor, ...]]] = None,
             **kwargs
-    ) -> tuple[dict[str, torch.Tensor], dict[str, dict[str, tuple[torch.Tensor, ...]]]]:
+    ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor], dict[str, dict[str, tuple[torch.Tensor, ...]]]]:
         x = self.token_embedding(idx)
         x = self.emb_dropout(x)
         x, state = self.xlstm_block_stack.step(x, state=state, **kwargs)
-        logits = {head: layer(x) for head, layer in self.multi_output_head.items()}
-        return logits, state
+        logits = {head: layer(x) for head, layer in self.classification_heads.items()}
+        reg_outputs = {head: layer(x) for head, layer in self.regression_heads.items()}
+
+        return logits, reg_outputs, state
 
     def _create_weight_decay_optim_groups(self, **kwargs) -> tuple[Sequence[nn.Parameter], Sequence[nn.Parameter]]:
         weight_decay, no_weight_decay = super()._create_weight_decay_optim_groups(**kwargs)

@@ -49,7 +49,7 @@ def test_embedding_output_shape(embedding_module):
     torch.randint(1, 73, (batch_size, seq_len, 1)),  # beat_unit
     torch.randint(1, 121, (batch_size, seq_len, 1)),  # offset
     torch.randint(1, 5, (batch_size, seq_len, 1)),  # grid
-    torch.randint(MIN_BPM, MAX_BPM-MIN_BPM, (batch_size, seq_len, 1)), # bpm
+    torch.randint(1, 40, (batch_size, seq_len, 1)), # bpm
     torch.randint(1, 11, (batch_size, seq_len, 1)),  # time_signature
     ], dim=2)
 

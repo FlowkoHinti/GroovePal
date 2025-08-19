@@ -2,11 +2,12 @@ import unittest
 
 from GrooveModel.Utils.BeatUnit import BEAT_UNIT_TOKEN_SIZE_RELATIVE, MAX_GRID_UNITS_PER_BAR, MAX_GRID_UNITS_PER_SONG, \
     BEAT_UNIT_TOKEN_SIZE_ABSOLUTE, encode_beat_unit, decode_beat_unit
-from GrooveModel.Utils.BeatsPerMinute import encode_bpm, decode_bpm, BPM_RESOLUTION, BPM_TOKEN_SIZE, MIN_BPM, MAX_BPM
+from GrooveModel.Utils.BeatsPerMinute import encode_bpm, decode_bpm, BPM_TOKEN_SIZE, MIN_BPM, MAX_BPM, \
+    NUM_BPM_BINS
 from GrooveModel.Utils.DNAGridFactor import GridFactors, RemappedGridFactors, encode_grid_factor, decode_grid_factor, \
     GRID_FACTOR_TOKEN_SIZE
 from GrooveModel.Utils.DNAOffset import encode_offset_ticks, OFFSET_TOKEN_SIZE, decode_offset_ticks, \
-    OFFSET_TICKS_RESOLUTION
+    OFFSET_TICKS_RESOLUTION, normalize_offset, denormalize_offset
 from GrooveModel.Utils.DNAValue import InstrumentValues, RemappedInstrumentValues, get_dna_instruments_list, \
     encode_instrument, decode_instrument, dna_to_instruments_strings, instruments_strings_to_dna, DNA_VALUE_TOKEN_SIZE
 from GrooveModel.Utils.DNAVelocity import VELOCITY_MIN, VELOCITY_MAX, VELOCITY_RESOLUTION, VELOCITY_TOKEN_SIZE, \
@@ -16,6 +17,7 @@ from GrooveModel.Utils.TimeSignatures import TIME_SIGNATURE_TOKEN_SIZE, UNKNOWN_
 
 # Mock SPECIAL_TOKEN_SIZE
 SPECIAL_TOKEN_SIZE = 1
+
 
 class TestDnaValueEncoding(unittest.TestCase):
 
@@ -83,7 +85,8 @@ class TestGridFactorEncoding(unittest.TestCase):
 
     def test_encode_grid_factor(self):
         self.assertEqual(encode_grid_factor(GridFactors.Quarter_Grid), RemappedGridFactors.Quarter_Grid)
-        self.assertEqual(encode_grid_factor(GridFactors.SixteenthTriplet_Grid), RemappedGridFactors.SixteenthTriplet_Grid)
+        self.assertEqual(encode_grid_factor(GridFactors.SixteenthTriplet_Grid),
+                         RemappedGridFactors.SixteenthTriplet_Grid)
 
     def test_decode_grid_factor(self):
         self.assertEqual(decode_grid_factor(RemappedGridFactors.EighthTriplet_Grid), GridFactors.EighthTriplet_Grid)
@@ -103,34 +106,35 @@ class TestOffsetEncoding(unittest.TestCase):
 
     def setUp(self):
         self.ticks_per_grid_unit = 120
+        self.max_half = self.ticks_per_grid_unit // 2  # 60
 
     def test_offset_encoding_within_bounds(self):
-        test_cases = [-120, -60, 0, 60, 120]
+        test_cases = [-self.max_half, -30, 0, 30, self.max_half]  # [-60, -30, 0, 30, 60]
         for offset in test_cases:
-            encoded = encode_offset_ticks(offset, self.ticks_per_grid_unit)
+            encoded = encode_offset_ticks(offset, self.ticks_per_grid_unit, start_at_zero=True)
             self.assertIsInstance(encoded, int)
             self.assertGreaterEqual(encoded, SPECIAL_TOKEN_SIZE)
             self.assertLess(encoded, OFFSET_TOKEN_SIZE)
 
     def test_offset_encoding_roundtrip(self):
-        test_cases = [-120, -75, -1, 0, 1, 75, 120]
+        test_cases = [-self.max_half, -45, -1, 0, 1, 45, self.max_half]  # within ±60
         for offset in test_cases:
             encoded = encode_offset_ticks(offset, self.ticks_per_grid_unit)
             decoded = decode_offset_ticks(encoded, self.ticks_per_grid_unit)
             self.assertAlmostEqual(decoded, offset, delta=1)  # Allow ±1 tick rounding error
 
     def test_offset_encoding_clamping(self):
-        # Values beyond ±ticks_per_grid_unit should be clamped
+        # Values beyond ±ticks_per_grid_unit/2 should be clamped to ±max_half
         too_small = encode_offset_ticks(-999, self.ticks_per_grid_unit)
         too_large = encode_offset_ticks(999, self.ticks_per_grid_unit)
-        min_expected = encode_offset_ticks(-self.ticks_per_grid_unit, self.ticks_per_grid_unit)
-        max_expected = encode_offset_ticks(self.ticks_per_grid_unit, self.ticks_per_grid_unit)
+        min_expected = encode_offset_ticks(-self.max_half, self.ticks_per_grid_unit)
+        max_expected = encode_offset_ticks(self.max_half, self.ticks_per_grid_unit)
         self.assertEqual(too_small, min_expected)
         self.assertEqual(too_large, max_expected)
 
     def test_offset_encoding_start_at_zero_false(self):
-        # When start_at_zero is False, center the range around 0
-        offset = 60
+        # When start_at_zero is False, center the range around 0 (still within ±max_half)
+        offset = 30
         encoded = encode_offset_ticks(offset, self.ticks_per_grid_unit, start_at_zero=False)
         decoded = decode_offset_ticks(encoded, self.ticks_per_grid_unit, start_at_zero=False)
         self.assertAlmostEqual(decoded, offset, delta=1)
@@ -139,48 +143,232 @@ class TestOffsetEncoding(unittest.TestCase):
         # Confirm size of total token space includes special tokens
         self.assertEqual(OFFSET_TOKEN_SIZE, OFFSET_TICKS_RESOLUTION + SPECIAL_TOKEN_SIZE)
 
+    # --- Normalization range & endpoints ---
+
+    def test_normalize_start_at_zero_range_and_endpoints(self):
+        # [-max_half, 0, +max_half] -> [0.0, 0.5, 1.0]
+        self.assertAlmostEqual(
+            normalize_offset(-self.max_half, self.ticks_per_grid_unit, start_at_zero=True), 0.0, places=7
+        )
+        self.assertAlmostEqual(
+            normalize_offset(0, self.ticks_per_grid_unit, start_at_zero=True), 0.5, places=7
+        )
+        self.assertAlmostEqual(
+            normalize_offset(self.max_half, self.ticks_per_grid_unit, start_at_zero=True), 1.0, places=7
+        )
+
+    def test_normalize_centered_range_and_endpoints(self):
+        # [-max_half, 0, +max_half] -> [-1.0, 0.0, 1.0]
+        self.assertAlmostEqual(
+            normalize_offset(-self.max_half, self.ticks_per_grid_unit, start_at_zero=False), -1.0, places=7
+        )
+        self.assertAlmostEqual(
+            normalize_offset(0, self.ticks_per_grid_unit, start_at_zero=False), 0.0, places=7
+        )
+        self.assertAlmostEqual(
+            normalize_offset(self.max_half, self.ticks_per_grid_unit, start_at_zero=False), 1.0, places=7
+        )
+
+    # --- Round-trip fidelity ---
+
+    def test_normalize_roundtrip_start_at_zero(self):
+        test_cases = [-self.max_half, -45, -1, 0, 1, 45, self.max_half]
+        for offset in test_cases:
+            n = normalize_offset(offset, self.ticks_per_grid_unit, start_at_zero=True)
+            recovered = denormalize_offset(n, self.ticks_per_grid_unit, start_at_zero=True)
+            self.assertAlmostEqual(recovered, offset, delta=1)  # allow ±1 tick
+
+    def test_normalize_roundtrip_centered(self):
+        test_cases = [-self.max_half, -45, -1, 0, 1, 45, self.max_half]
+        for offset in test_cases:
+            n = normalize_offset(offset, self.ticks_per_grid_unit, start_at_zero=False)
+            recovered = denormalize_offset(n, self.ticks_per_grid_unit, start_at_zero=False)
+            self.assertAlmostEqual(recovered, offset, delta=1)  # allow ±1 tick
+
+    # --- Clamping behavior on input offsets ---
+
+    def test_normalize_clamps_input_start_at_zero(self):
+        # Inputs outside ±max_half should clamp to endpoints 0.0 and 1.0
+        too_small = normalize_offset(-999, self.ticks_per_grid_unit, start_at_zero=True)
+        too_large = normalize_offset(999, self.ticks_per_grid_unit, start_at_zero=True)
+        self.assertEqual(too_small, 0.0)
+        self.assertEqual(too_large, 1.0)
+
+    def test_normalize_clamps_input_centered(self):
+        # Inputs outside ±max_half should clamp to endpoints -1.0 and 1.0
+        too_small = normalize_offset(-999, self.ticks_per_grid_unit, start_at_zero=False)
+        too_large = normalize_offset(999, self.ticks_per_grid_unit, start_at_zero=False)
+        self.assertEqual(too_small, -1.0)
+        self.assertEqual(too_large, 1.0)
+
+    # --- Denormalization correctness on canonical values ---
+
+    def test_denormalize_from_canonical_values_start_at_zero(self):
+        self.assertEqual(
+            denormalize_offset(0.0, self.ticks_per_grid_unit, start_at_zero=True),
+            -self.max_half
+        )
+        self.assertEqual(
+            denormalize_offset(0.5, self.ticks_per_grid_unit, start_at_zero=True),
+            0
+        )
+        self.assertEqual(
+            denormalize_offset(1.0, self.ticks_per_grid_unit, start_at_zero=True),
+            self.max_half
+        )
+
+    def test_denormalize_from_canonical_values_centered(self):
+        self.assertEqual(
+            denormalize_offset(-1.0, self.ticks_per_grid_unit, start_at_zero=False),
+            -self.max_half
+        )
+        self.assertEqual(
+            denormalize_offset(0.0, self.ticks_per_grid_unit, start_at_zero=False),
+            0
+        )
+        self.assertEqual(
+            denormalize_offset(1.0, self.ticks_per_grid_unit, start_at_zero=False),
+            self.max_half
+        )
+
+    # --- Type checks ---
+
+    def test_normalize_and_denormalize_types(self):
+        n = normalize_offset(0, self.ticks_per_grid_unit, start_at_zero=True)
+        self.assertIsInstance(n, float)
+        d = denormalize_offset(0.5, self.ticks_per_grid_unit, start_at_zero=True)
+        self.assertIsInstance(d, int)
+
 
 class TestBPMEncoding(unittest.TestCase):
 
-    def test_bpm_encode_decode_roundtrip(self):
-        for bpm in [MIN_BPM, 60, 120, 180, 240, MAX_BPM-1]:
-            encoded = encode_bpm(bpm)
-            decoded = decode_bpm(encoded)
-            self.assertEqual(decoded, bpm, f"Round-trip failed for BPM: {bpm}")
+    def setUp(self):
+        # Derived values used in multiple tests
+        self.range_ = MAX_BPM - MIN_BPM
+        self.bin_width = self.range_ / NUM_BPM_BINS
+        self.eps = self.bin_width * 1e-6  # tiny nudge to avoid boundary ambiguity
 
-    def test_encoded_bpm_has_correct_offset(self):
-        bpm = 100
-        expected_encoded = (bpm - MIN_BPM) + SPECIAL_TOKEN_SIZE
-        self.assertEqual(encode_bpm(bpm), expected_encoded)
+    # --- Helpers ---
+    def expected_bin_index(self, bpm: float) -> int:
+        rel = (bpm - MIN_BPM) / self.range_
+        idx = int(rel * NUM_BPM_BINS)
+        return min(max(idx, 0), NUM_BPM_BINS - 1)
 
-    def test_decoded_bpm_removes_offset_correctly(self):
-        bpm = 150
-        token = encode_bpm(bpm)
-        decoded = decode_bpm(token)
-        self.assertEqual(decoded, bpm)
+    def expected_midpoint(self, idx: int) -> float:
+        return MIN_BPM + (idx + 0.5) * self.bin_width
+
+    # --- Core behavior ---
+
+    def test_encode_maps_to_correct_bins(self):
+        """Encoding places BPMs into the expected bin indices."""
+        # Choose BPMs firmly inside a few bins: 0, middle, last
+        candidates = [
+            MIN_BPM + self.eps,  # inside bin 0
+            MIN_BPM + (NUM_BPM_BINS // 2) * self.bin_width + self.bin_width * 0.25,
+            MAX_BPM - self.bin_width * 0.75,  # near the end, but < MAX_BPM
+        ]
+        for bpm in candidates:
+            idx = self.expected_bin_index(bpm)
+            token = encode_bpm(bpm, include_padding=True)
+            self.assertEqual(token, SPECIAL_TOKEN_SIZE + idx)
+
+            token_np = encode_bpm(bpm, include_padding=False)
+            self.assertEqual(token_np, idx)
+
+    def test_decode_returns_bin_midpoint_float(self):
+        """Decoding returns the exact bin midpoint when as_int=False."""
+        for idx in [0, NUM_BPM_BINS // 3, NUM_BPM_BINS // 2, NUM_BPM_BINS - 1]:
+            token = SPECIAL_TOKEN_SIZE + idx
+            decoded = decode_bpm(token, include_padding=True, as_int=False)
+            exp = self.expected_midpoint(idx)
+            self.assertAlmostEqual(decoded, exp, places=9)
+
+            # no-padding variant
+            token_np = idx
+            decoded_np = decode_bpm(token_np, include_padding=False, as_int=False)
+            self.assertAlmostEqual(decoded_np, exp, places=9)
+
+    def test_roundtrip_yields_bin_midpoint(self):
+        """Encode→decode yields the midpoint of the selected bin (not the original BPM)."""
+        test_bpms = [
+            MIN_BPM,
+            60,
+            120,
+            180,
+            240,
+            MAX_BPM - 1,  # still inside range per spec (MAX_BPM is exclusive)
+            MIN_BPM + self.bin_width * 0.49,  # near edge but inside bin 0
+            MIN_BPM + self.bin_width * 1.01,  # crosses into bin 1
+        ]
+        for bpm in test_bpms:
+            idx = self.expected_bin_index(bpm)
+            token = encode_bpm(bpm)
+            decoded = decode_bpm(token, as_int=False)  # check exact midpoint
+            exp = self.expected_midpoint(idx)
+            self.assertAlmostEqual(decoded, exp, places=9, msg=f"Failed at BPM={bpm}")
+
+    def test_decoding_as_int_rounds_midpoint(self):
+        """When as_int=True, midpoint is rounded to nearest int."""
+        # Pick a known bin and verify rounding behavior
+        idx = NUM_BPM_BINS // 2
+        token = SPECIAL_TOKEN_SIZE + idx
+        mid = self.expected_midpoint(idx)
+        decoded_int = decode_bpm(token, as_int=True)
+        self.assertEqual(decoded_int, int(round(mid)))
 
     def test_bpm_token_size_is_correct(self):
-        self.assertEqual(BPM_TOKEN_SIZE, BPM_RESOLUTION + SPECIAL_TOKEN_SIZE)
+        self.assertEqual(BPM_TOKEN_SIZE, NUM_BPM_BINS + SPECIAL_TOKEN_SIZE)
 
     def test_encoding_bounds(self):
-        encoded_min = encode_bpm(MIN_BPM)
-        encoded_max = encode_bpm(MAX_BPM-1)
+        """MIN_BPM maps to bin 0; values very close to MAX_BPM map to last bin."""
+        # MIN_BPM
+        t_min = encode_bpm(MIN_BPM)
+        self.assertEqual(t_min, SPECIAL_TOKEN_SIZE + 0)
+        d_min = decode_bpm(t_min, as_int=False)
+        self.assertAlmostEqual(d_min, self.expected_midpoint(0), places=9)
 
-        self.assertEqual(decode_bpm(encoded_min), MIN_BPM)
-        self.assertEqual(decode_bpm(encoded_max), MAX_BPM-1)
+        # A value guaranteed to lie in the last bin (but still < MAX_BPM)
+        bpm_last_bin = MAX_BPM - self.eps
+        t_last = encode_bpm(bpm_last_bin)
+        self.assertEqual(t_last, SPECIAL_TOKEN_SIZE + (NUM_BPM_BINS - 1))
+        d_last = decode_bpm(t_last, as_int=False)
+        self.assertAlmostEqual(d_last, self.expected_midpoint(NUM_BPM_BINS - 1), places=9)
 
-        self.assertEqual(encoded_min, SPECIAL_TOKEN_SIZE)
-        self.assertEqual(encoded_max, SPECIAL_TOKEN_SIZE + (MAX_BPM - MIN_BPM - 1))
+    # --- Error cases ---
 
     def test_out_of_range_bpm_raises_error(self):
         with self.assertRaises(ValueError):
             encode_bpm(MIN_BPM - 1)
         with self.assertRaises(ValueError):
-            encode_bpm(MAX_BPM + 1)
+            encode_bpm(MAX_BPM)  # MAX_BPM is exclusive
+
+    def test_out_of_range_token_raises_error(self):
+        # include_padding=True invalid tokens
         with self.assertRaises(ValueError):
-            decode_bpm(SPECIAL_TOKEN_SIZE - 1)
+            decode_bpm(SPECIAL_TOKEN_SIZE - 1)  # below padded range
         with self.assertRaises(ValueError):
-            decode_bpm(SPECIAL_TOKEN_SIZE + (MAX_BPM - MIN_BPM + 1))  # One above max token
+            decode_bpm(SPECIAL_TOKEN_SIZE + NUM_BPM_BINS)  # one above max padded token
+
+        # include_padding=False invalid indices
+        with self.assertRaises(ValueError):
+            decode_bpm(-1, include_padding=False)
+        with self.assertRaises(ValueError):
+            decode_bpm(NUM_BPM_BINS, include_padding=False)
+
+    def test_no_padding_consistency(self):
+        """Encoding/decoding with include_padding=False is consistent and matches padded results after adjusting offset."""
+        bpm = 137.3
+        idx = self.expected_bin_index(bpm)
+
+        tok_padded = encode_bpm(bpm, include_padding=True)
+        tok_np = encode_bpm(bpm, include_padding=False)
+        self.assertEqual(tok_padded, SPECIAL_TOKEN_SIZE + idx)
+        self.assertEqual(tok_np, idx)
+
+        d_padded = decode_bpm(tok_padded, include_padding=True, as_int=False)
+        d_np = decode_bpm(tok_np, include_padding=False, as_int=False)
+        self.assertAlmostEqual(d_padded, d_np, places=9)
+
 
 class TestVelocityEncoding(unittest.TestCase):
 
@@ -276,6 +464,7 @@ class TestTimeSignatureEncoding(unittest.TestCase):
         with self.assertRaises(ValueError):
             encode_time_signature(4, 0)
 
+
 class TestBeatUnitEncoding(unittest.TestCase):
 
     def test_constants(self):
@@ -317,6 +506,7 @@ class TestBeatUnitEncoding(unittest.TestCase):
             encode_beat_unit(MAX_GRID_UNITS_PER_SONG + 1, absolute=True)
         with self.assertRaises(ValueError):
             decode_beat_unit(SPECIAL_TOKEN_SIZE + MAX_GRID_UNITS_PER_SONG + 1, absolute=True)
+
 
 if __name__ == '__main__':
     unittest.main()
