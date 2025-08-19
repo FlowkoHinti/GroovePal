@@ -4,33 +4,56 @@ channels:
   - nvidia
   - conda-forge
   - defaults
+
 dependencies:
-  - cuda=12.4
-  - cuda-nvcc=12.4
-  - gxx_linux-64=13.2.0
+  # Core
   - python=3.11
-  - pip
-  - pytorch=2.4.0
-  - pytorch-cuda=12.4
-  - torchvision
-  - torchaudio
-  - cmake
+  - pip<25
+  - setuptools=68.2.2
+  - wheel<1.0
+  - packaging
+  - git
+
+  # Build tools
+  - cmake>=3.27
   - ninja
+  - gxx_linux-64=13.2.0
+
+  # CUDA toolchain (12.4)
+  - cuda=12.4
   - cuda-toolkit=12.4
+  - cuda-nvcc=12.4
   - cuda-cccl=12.4
+
+  # PyTorch stack (conda-native)
+  - pytorch=2.5.1
+  - pytorch-cuda=12.4
+  - torchvision=0.20.1
+  - torchaudio=2.5.1
+
   - pip:
+      # Extra ML / data packages
+      - torchmetrics==1.8.0
+      - pandas
+      - seaborn
+      - datasets==4.0.0
+      - numpy==2.3.2
+
+      # Dev & Jupyter
+      - jupyter
       - pre-commit
       - ipykernel
-      - dacite
-      - omegaconf
-      - torchvision
-      - torchmetrics
-      - tqdm
-      - pytest
+
+      # Project deps
+      - pynvml==12.0.0
+      - colorlog==6.9.0
+      - dacite==1.9.2
+      - matplotlib==3.10.5
+      - mlstm_kernels==2.0.0
+      - omegaconf==2.3.0
+      - pretty_midi==0.2.10
+      - psutil==7.0.0
+      - pytest==8.4.1
       - pytest-xdist
-      - numpy<2.0
-      - colorlog
-      - psutil
-      - pandas
-      - matplotlib
-      - seaborn
+      - safetensors==0.6.1
+      - tqdm==4.67.1
