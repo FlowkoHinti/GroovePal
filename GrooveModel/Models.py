@@ -4,7 +4,7 @@ from typing import Sequence
 import torch
 from torch import nn
 
-from GrooveModel.Embeddings import MultiTaskDNAEmbeddingConfig, MultiTaskDNAEmbedding
+from GrooveModel.Embedding.MultiTaskDnaEmbedding import MultiTaskDNAEmbedding, MultiTaskDNAEmbeddingConfig
 from GrooveModel.Vocab import INSTRUMENT_VOCAB_SIZE, BEAT_UNIT_ABSOLUTE_VOCAB_SIZE, \
     BEAT_UNIT_RELATIVE_VOCAB_SIZE, TIME_SIGNATURE_VOCAB_SIZE, GRID_FACTOR_VOCAB_SIZE, BPM_VOCAB_SIZE
 from GrooveModel.xlstm.xlstm import xLSTMBlockStack, xLSTMBlockStackConfig

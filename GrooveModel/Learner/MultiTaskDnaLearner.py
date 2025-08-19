@@ -1,90 +1,31 @@
-from abc import ABC, abstractmethod
-
 import torch
 from dacite import from_dict, Config as DaciteConfig
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 
-from GrooveModel import Tokenizers, CollateFunctions
-from GrooveModel.Callbacks import CheckpointCallback, EarlyStoppingCallback, PlotLossCurvesCallback, \
-    PlotMetricsCallback, LRLoggerCallback, GradientClippingCallback, EpochSummaryCallback, CallbackManager
+from GrooveModel import CollateFunctions
+from GrooveModel.Callbacks.Callback import CallbackManager
+from GrooveModel.Callbacks.CheckpointCallback import CheckpointCallback
+from GrooveModel.Callbacks.EarlyStoppingCallback import EarlyStoppingCallback
+from GrooveModel.Callbacks.EpochSummaryCallback import EpochSummaryCallback
+from GrooveModel.Callbacks.GradientClippingCallback import GradientClippingCallback
+from GrooveModel.Callbacks.LRLoggerCallback import LRLoggerCallback
+from GrooveModel.Callbacks.PlotLossCurveCallback import PlotLossCurvesCallback
+from GrooveModel.Callbacks.PlotMetricsCallback import PlotMetricsCallback
 from GrooveModel.Datasets import DNANextTokenDataset
-from GrooveModel.Embeddings import MultiTaskDNAEmbeddingConfig
-from GrooveModel.LearnerState import LearnerState
+from GrooveModel.Embedding.MultiTaskDnaEmbedding import MultiTaskDNAEmbeddingConfig
+from GrooveModel.Learner.Learner import BaseDNALearner, sort_params_by_name
+from GrooveModel.Learner.LearnerState import LearnerState
 from GrooveModel.Loss import UncertaintyWeightedMultiTaskLoss
 from GrooveModel.Metrics import MultiTaskDNAMetrics
-from GrooveModel.Models import MultiTaskDNAxLSTM, MultiTaskDNAModelConfig
+from GrooveModel.Models import MultiTaskDNAModelConfig, MultiTaskDNAxLSTM
+from GrooveModel.Tokenizer.MultiTaskDnaTokenizer import MultiTaskDnaTokenizer
 from GrooveModel.TrainLoop import run_training_loop
-from GrooveModel.Utils.DNAOffset import OFFSET_TICKS_RESOLUTION, normalize_offset_tensor
-from GrooveModel.Utils.DNAVelocity import EFFECTIVE_VELOCITY_RESOLUTION, normalize_velocity_tensor
+from GrooveModel.Utils.DNAOffset import normalize_offset_tensor
+from GrooveModel.Utils.DNAVelocity import normalize_velocity_tensor
 from GrooveModel.Utils.Logger import setup_logger
-from GrooveModel.Utils.SpecialTokens import SpecialTokens, SPECIAL_TOKEN_SIZE
+from GrooveModel.Utils.SpecialTokens import SpecialTokens
 from GrooveModel.xlstm.experiments.lr_scheduler import LinearWarmupCosineAnnealing
-
-
-def sort_params_by_name(model, params):
-    """Utility to keep the order of params, since xLSTM implementation uses sets.
-    Makes Params deterministic"""
-
-    name_by_param = {p: n for n, p in model.named_parameters()}
-    params = [p for p in params if getattr(p, "requires_grad", True)]
-    return sorted(params, key=lambda p: name_by_param.get(p, ""))
-
-
-class BaseDNALearner(ABC):
-    def __init__(self, cfg: DictConfig):
-        self.cfg = cfg
-        self.device = torch.device(self.cfg.train.device if torch.cuda.is_available() else "cpu")
-
-    @abstractmethod
-    def _setup_dataset(self):
-        """Set up training/validation/test datasets and data loaders."""
-        pass
-
-    @abstractmethod
-    def _setup_embedding(self):
-        """Initialize embedding configurations."""
-        pass
-
-    @abstractmethod
-    def _setup_model(self):
-        """Instantiate and initialize the model."""
-        pass
-
-    @abstractmethod
-    def _setup_optimizer(self):
-        """Initializes the optimizer with weight decay applied to appropriate parameters."""
-        pass
-
-    @abstractmethod
-    def _setup_criterion(self):
-        """Instantiate and initialize the loss function."""
-        pass
-
-    @abstractmethod
-    def _setup_training_objects(self):
-        """Set up optimizer, scheduler, loss function, and learner state."""
-        pass
-
-    @abstractmethod
-    def _setup_callbacks(self):
-        """Register callbacks used during training."""
-        pass
-
-    @abstractmethod
-    def compute_loss(self, logits, targets) -> torch.Tensor:
-        """Compute and return the training loss."""
-        pass
-
-    @abstractmethod
-    def train(self):
-        """Main training loop."""
-        pass
-
-    @abstractmethod
-    def test(self):
-        """Evaluation on the test set."""
-        pass
 
 
 class MultiTaskDNALearner(BaseDNALearner):
@@ -104,13 +45,13 @@ class MultiTaskDNALearner(BaseDNALearner):
         ds_conf = self.cfg.dataset
 
         self.train_dataset = DNANextTokenDataset(
-            ds_conf, split="train", tokenizer=Tokenizers.MultiTaskDnaTokenizer
+            ds_conf, split="train", tokenizer=MultiTaskDnaTokenizer
         )
         self.val_dataset = DNANextTokenDataset(
-            ds_conf, split="validation", tokenizer=Tokenizers.MultiTaskDnaTokenizer
+            ds_conf, split="validation", tokenizer=MultiTaskDnaTokenizer
         )
         # self.test_dataset = DNANextTokenDataset(
-        #     ds_conf, split="test", tokenizer=Tokenizers.MultiTaskDNATokenizer
+        #     ds_conf, split="test", tokenizer=MultiTaskDNATokenizer
         # )
 
         common_loader_args = {
@@ -325,7 +266,8 @@ class MultiTaskDNALearner(BaseDNALearner):
 
         # --- feed multitask criterion ---
         loss_outputs = {
-            "instrument": class_logits["instrument"].view(-1, class_logits["instrument"].size(-1)), # Flatten logits (B, T)
+            "instrument": class_logits["instrument"].view(-1, class_logits["instrument"].size(-1)),
+            # Flatten logits (B, T)
             "beat_unit": class_logits["beat_unit"].view(-1, class_logits["beat_unit"].size(-1)),
             "grid_factor": class_logits["grid_factor"].view(-1, class_logits["grid_factor"].size(-1)),
             "bpm": class_logits["bpm"].view(-1, class_logits["bpm"].size(-1)),

@@ -12,6 +12,7 @@ from GrooveModel.Utils.DNAValue import DNA_VALUE_TOKEN_SIZE, InstrumentValues
 from GrooveModel.Utils.DNAVelocity import VELOCITY_TOKEN_SIZE, VELOCITY_RESOLUTION
 from GrooveModel.Utils.TimeSignatures import TIME_SIGNATURE_TOKEN_SIZE, TimeSignatures
 
+# --- MULTI TAKS VOCAB ---
 # vocab sizes (+1 for padding token)
 INSTRUMENT_VOCAB_SIZE = DNA_VALUE_TOKEN_SIZE
 VELOCITY_VOCAB_SIZE = VELOCITY_TOKEN_SIZE
@@ -24,8 +25,6 @@ BEAT_UNIT_RELATIVE_VOCAB_SIZE = BEAT_UNIT_TOKEN_SIZE_RELATIVE
 
 
 # --- SEQUENTIAL VOCAB ---
-
-
 @dataclass(slots=True, frozen=True)
 class SequentialDnaVocab:
     # Immutable token groups

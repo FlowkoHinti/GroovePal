@@ -6,8 +6,8 @@ from torch import optim
 from torch.amp import autocast
 from tqdm import tqdm
 
-from GrooveModel.Callbacks import CallbackManager
-from GrooveModel.LearnerState import LearnerState
+from GrooveModel.Callbacks.Callback import CallbackManager
+from GrooveModel.Learner.LearnerState import LearnerState
 from GrooveModel.Metrics import BaseMetrics
 
 
@@ -47,7 +47,7 @@ def run_training_loop(
 
             loss.backward()
 
-            callback_manager.call("on_after_backward", learner)        # e.g., gradient clipping
+            callback_manager.call("on_after_backward", learner)  # e.g., gradient clipping
 
             learner.optimizer.step()
 

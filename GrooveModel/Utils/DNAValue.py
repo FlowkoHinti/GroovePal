@@ -38,6 +38,7 @@ def get_dna_instruments_list(value) -> list[InstrumentValues]:
             instruments.append(instrument.value)
     return instruments
 
+
 def encode_instrument(value) -> RemappedInstrumentValues:
     """
     Get the remapped instruments values from the dna value.
@@ -46,6 +47,7 @@ def encode_instrument(value) -> RemappedInstrumentValues:
     """
     dna_instrument = InstrumentValues(value).name
     return RemappedInstrumentValues[dna_instrument]
+
 
 def decode_instrument(remapped_value) -> InstrumentValues:
     """
@@ -56,6 +58,7 @@ def decode_instrument(remapped_value) -> InstrumentValues:
     # Reverse the RemappedInstrumentValues mapping
     instrument = RemappedInstrumentValues(remapped_value).name
     return InstrumentValues[instrument]
+
 
 def dna_to_instruments_strings(value) -> list[str]:
     """

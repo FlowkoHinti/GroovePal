@@ -44,7 +44,7 @@ def decode_bpm(token: int, include_padding: bool = True, as_int: bool = True):
     """
     idx = token - SPECIAL_TOKEN_SIZE if include_padding else token
     if not (0 <= idx < NUM_BPM_BINS):
-        raise ValueError(f"Token {token} maps to invalid bin index {idx} (0-{NUM_BPM_BINS-1})")
+        raise ValueError(f"Token {token} maps to invalid bin index {idx} (0-{NUM_BPM_BINS - 1})")
 
     # Midpoint of bin k is: MIN + (k + 0.5) * BIN_WIDTH
     mid = MIN_BPM + (idx + 0.5) * _BIN_WIDTH
@@ -56,7 +56,7 @@ def bpm_bin_bounds(idx: int):
     Convenience: return (low, high) bounds for bin idx, half-open [low, high).
     """
     if not (0 <= idx < NUM_BPM_BINS):
-        raise ValueError(f"Invalid bin index {idx} (0-{NUM_BPM_BINS-1})")
+        raise ValueError(f"Invalid bin index {idx} (0-{NUM_BPM_BINS - 1})")
     low = MIN_BPM + idx * _BIN_WIDTH
     high = low + _BIN_WIDTH
     return low, high

@@ -8,9 +8,9 @@ from omegaconf import OmegaConf, DictConfig
 
 from Configs import BASE_PATH, MAX_SEQUENCE_LENGTH
 from GrooveModel.Datasets import get_all_dna_json_paths, load_dna_json
-from GrooveModel.Embeddings import MultiTaskDNAEmbeddingConfig
+from GrooveModel.Embedding.Embedding import MultiTaskDNAEmbeddingConfig
 from GrooveModel.Models import MultiTaskDNAxLSTM, MultiTaskDNAModelConfig
-from GrooveModel.Tokenizers import MultiTaskDnaTokenizer, MultiDnaToken, tokens_to_tensor
+from GrooveModel.Tokenizer.Tokenizer import MultiTaskDnaTokenizer, MultiDnaToken, tokens_to_tensor
 from GrooveModel.Utils.BeatUnit import decode_beat_unit
 from GrooveModel.Utils.DNAOffset import decode_offset_ticks
 from GrooveModel.Utils.DNAValue import decode_instrument

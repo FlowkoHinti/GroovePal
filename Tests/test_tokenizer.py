@@ -1,9 +1,9 @@
 import unittest
 
-from GrooveModel.Tokenizers import MultiTaskDnaTokenizer, MultiDnaToken
-from GrooveModel.Utils.DNAOffset import decode_offset_ticks
+from GrooveModel.Tokenizer.MultiTaskDnaTokenizer import MultiTaskDnaTokenizer, MultiDnaToken
 from GrooveModel.Utils.BeatUnit import decode_beat_unit
-from GrooveModel.Utils.BeatsPerMinute import decode_bpm, bpm_bin_bounds
+from GrooveModel.Utils.BeatsPerMinute import decode_bpm
+from GrooveModel.Utils.DNAOffset import decode_offset_ticks
 
 
 class TestMultiDimDNATokenizer(unittest.TestCase):
@@ -34,8 +34,8 @@ class TestMultiDimDNATokenizer(unittest.TestCase):
         self.assertGreater(token.Instrument, 0)
         self.assertGreater(token.Velocity, 0)
         self.assertEqual(decode_beat_unit(token.BeatUnit, absolute=False), 0)
-        self.assertAlmostEqual(decode_offset_ticks(token.BeatUnitOffset, ticks_per_grid_unit=240), 15, delta=1)
-        self.assertAlmostEqual(decode_bpm(token.Bpm),120, delta=4)
+        self.assertAlmostEqual(decode_offset_ticks(token.BeatUnitOffset, ticks_per_grid_unit=240, start_at_zero=True), 15, delta=1)
+        self.assertAlmostEqual(decode_bpm(token.Bpm), 120, delta=4)
 
     def test_multiple_instruments(self):
         song = {
@@ -67,8 +67,9 @@ class TestMultiDimDNATokenizer(unittest.TestCase):
             "TicksPerQuarterNote": 480,
             "GridFactor": 1,
             "DNAUnits": (
-                [{"Value": 0, "IsEmpty": True}] * 4 +
-                [{"Value": 1, "IsEmpty": False, "VelocityPerValuePart": {"1": 0.6}, "OffsetTicksPerValuePart": {"1": 0}}]
+                    [{"Value": 0, "IsEmpty": True}] * 4 +
+                    [{"Value": 1, "IsEmpty": False, "VelocityPerValuePart": {"1": 0.6},
+                      "OffsetTicksPerValuePart": {"1": 0}}]
             )
         }
 
@@ -84,13 +85,13 @@ class TestMultiDimDNATokenizer(unittest.TestCase):
             "TicksPerQuarterNote": 480,
             "GridFactor": 2,
             "DNAUnits": [
-                {
-                    "Value": 1,
-                    "IsEmpty": False,
-                    "VelocityPerValuePart": {"1": 0.8},
-                    "OffsetTicksPerValuePart": {"1": 20}
-                }
-            ] * 8
+                            {
+                                "Value": 1,
+                                "IsEmpty": False,
+                                "VelocityPerValuePart": {"1": 0.8},
+                                "OffsetTicksPerValuePart": {"1": 20}
+                            }
+                        ] * 8
         }
 
         tokens = MultiTaskDnaTokenizer.tokenize(song, absolute_grid_units=True)
@@ -120,7 +121,7 @@ class TestMultiDimDNATokenizer(unittest.TestCase):
         self.assertEqual(len(tokens), 3)
 
         for token in tokens:
-            offset = decode_offset_ticks(token.BeatUnitOffset, ticks_per_grid_unit=120)
+            offset = decode_offset_ticks(token.BeatUnitOffset, ticks_per_grid_unit=120, start_at_zero=True)
             self.assertAlmostEqual(offset, 8, delta=1)
 
     def test_all_empty_units(self):
@@ -155,7 +156,7 @@ class TestMultiDimDNATokenizer(unittest.TestCase):
 
         tokens = MultiTaskDnaTokenizer.tokenize(song)
         self.assertEqual(len(tokens), 1)
-        offset = decode_offset_ticks(tokens[0].BeatUnitOffset, ticks_per_grid_unit=960)
+        offset = decode_offset_ticks(tokens[0].BeatUnitOffset, ticks_per_grid_unit=960, start_at_zero=True)
         self.assertEqual(offset, 480)
 
     def test_no_units(self):

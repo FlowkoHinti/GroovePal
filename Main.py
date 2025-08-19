@@ -3,7 +3,7 @@ import torch
 from omegaconf import OmegaConf
 
 from Configs import BASE_PATH, MAX_SEQUENCE_LENGTH, RNG_SEED
-from GrooveModel.Learner import MultiTaskDNALearner
+from GrooveModel.Learner.MultiTaskDnaLearner import MultiTaskDNALearner
 
 
 def compute_embedding_dim(embedding_cfg):
@@ -38,6 +38,10 @@ def prepare_config(cfg):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("experiment", help="Name of the YAML config file in Experiments/ (without extension)")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--train", action="store_true", help="Run in training mode")
+    group.add_argument("--test", action="store_true", help="Run in testing mode")
+
     args = parser.parse_args()
 
     config_path = BASE_PATH / "Experiments" / f"{args.experiment}.yml"
@@ -54,7 +58,10 @@ def main():
     learner = MultiTaskDNALearner(cfg)
 
     # Start training
-    learner.train()
+    if args.train:
+        learner.train()
+    if args.test:
+        learner.test()
 
 
 if __name__ == "__main__":

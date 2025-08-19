@@ -1,0 +1,77 @@
+dataset:
+  dna_path: Data/pre_training          # Folder containing subfolders: train/, val/, test/
+  convert_to_tensor: true              # Convert token sequences to tensors
+  #subset: 1000                         # (Optional) Load only the first N samples
+  shuffle: true                        # Shuffle the dataset in the DataLoader
+  num_workers: 4                       # Data loading parallelism
+
+  tokenizer:
+    trim_leading_empty_measures: true
+    absolute_grid_units: false
+
+embedding:
+  instruments:
+    embedding_dim: 4
+  velocities:
+    embedding_dim: 12
+  offsets:
+    embedding_dim: 12
+  time_signature:
+    embedding_dim: 4
+  grid_factor:
+    embedding_dim: 4
+  bpm:
+    embedding_dim: 8
+  beat_units:
+    embedding_dim: 8
+    absolute_beat_units: false
+  normalize_embeddings: false
+
+model:
+  context_length: ... # inject at runtime
+  embedding_dim: ... # inject at runtime
+  dropout: 0.1
+  num_blocks: 14
+  add_embedding_dropout: true
+
+  mlstm_block:
+    mlstm:
+      conv1d_kernel_size: 4
+      qkv_proj_blocksize: 4
+      num_heads: 4 # 4/8 are a rule of thumb amount that seemed to work best for most nlp tasks
+
+  slstm_block:
+    slstm:
+      num_heads: 4
+      conv1d_kernel_size: 4
+      bias_init: powerlaw_blockdependent
+    feedforward:
+      proj_factor: 1.3
+      act_fn: gelu
+
+  slstm_at: [7, 13]
+
+train:
+  model_name: multitask_relGridUnits_mixedLoss
+  save_dir: Models
+  device: cuda
+  batch_size: 32
+  epochs: 10
+
+  initial_lr: 0.001
+  weight_decay: 0.1
+  gradient_clip_norm: 1.0
+  use_mixed_precision: true
+  monitor: val_loss
+  mode: min
+  patience: 4
+  load_best_on_start: false
+  metrics: ['accuracy','top_k_accuracy@3', 'perplexity', 'mse', 'mae']
+
+  lr_scheduler:
+    type: linear_warmup_cosine_annealing # lr_step
+    #lr_step_size: 10
+    #lr_gamma: 0.5
+
+    lr_warmup_steps_ratio: 0.05
+    lr_decay_factor: 0.001

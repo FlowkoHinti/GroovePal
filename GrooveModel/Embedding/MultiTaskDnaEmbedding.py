@@ -1,15 +1,13 @@
-import math
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, MISSING, field
 
 import torch
-from omegaconf import MISSING
 from torch import nn
 
-from Configs import MAX_SEQUENCE_LENGTH
+from GrooveModel.Embedding.Embedding import DnaEmbedding
 from GrooveModel.Utils.SpecialTokens import SpecialTokens
-from GrooveModel.Vocab import INSTRUMENT_VOCAB_SIZE, VELOCITY_VOCAB_SIZE, OFFSET_VOCAB_SIZE, TIME_SIGNATURE_VOCAB_SIZE, \
-    GRID_FACTOR_VOCAB_SIZE, BPM_VOCAB_SIZE, BEAT_UNIT_ABSOLUTE_VOCAB_SIZE, BEAT_UNIT_RELATIVE_VOCAB_SIZE
+from GrooveModel.Vocab import INSTRUMENT_VOCAB_SIZE, VELOCITY_VOCAB_SIZE, BEAT_UNIT_ABSOLUTE_VOCAB_SIZE, \
+    BEAT_UNIT_RELATIVE_VOCAB_SIZE, OFFSET_VOCAB_SIZE, GRID_FACTOR_VOCAB_SIZE, BPM_VOCAB_SIZE, TIME_SIGNATURE_VOCAB_SIZE
 
 
 @dataclass
@@ -35,7 +33,7 @@ class MultiTaskDNAEmbeddingConfig:
     normalize_embeddings: bool = False
 
 
-class MultiTaskDNAEmbedding(nn.Module):
+class MultiTaskDNAEmbedding(DnaEmbedding):
     def __init__(self, embedding_config: MultiTaskDNAEmbeddingConfig):
         super(MultiTaskDNAEmbedding, self).__init__()
 
@@ -55,7 +53,7 @@ class MultiTaskDNAEmbedding(nn.Module):
             'offset': nn.Embedding(OFFSET_VOCAB_SIZE, embedding_config.offsets.embedding_dim,
                                    padding_idx=SpecialTokens.PAD),
             'grid_factor': nn.Embedding(GRID_FACTOR_VOCAB_SIZE, embedding_config.grid_factor.embedding_dim,
-                                 padding_idx=SpecialTokens.PAD),
+                                        padding_idx=SpecialTokens.PAD),
             'bpm': nn.Embedding(BPM_VOCAB_SIZE, embedding_config.bpm.embedding_dim, padding_idx=SpecialTokens.PAD),
             'time_signature': nn.Embedding(TIME_SIGNATURE_VOCAB_SIZE, embedding_config.time_signature.embedding_dim,
                                            padding_idx=SpecialTokens.PAD)
@@ -99,33 +97,3 @@ class MultiTaskDNAEmbedding(nn.Module):
             embeddings.append(emb_layer(x))
 
         return self.normalize_embedding(torch.cat(embeddings, dim=-1))
-
-
-class BeatPositionalEncoding(nn.Module):
-    def __init__(self, embedding_dim, max_len=MAX_SEQUENCE_LENGTH):
-        super().__init__()
-        self.embedding_dim = embedding_dim
-
-        # Precompute sinusoidal encoding table
-        pe = torch.zeros(max_len, embedding_dim)
-        position = torch.arange(0, max_len, dtype=torch.float32).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, embedding_dim, 2).float() * (-math.log(10000.0) / embedding_dim))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        self.register_buffer('pe', pe)  # shape: (max_len, d_model)
-
-    def forward(self, x, beat_unit=None):
-        """
-        Args:
-            x: Tensor of shape (batch_size, seq_len, d_model)
-            beat_unit: Optional LongTensor of shape (batch_size, seq_len)
-                       representing a position-like index for each token (e.g., beats)
-        Returns:
-            Tensor with beat-based positional encoding added
-        """
-        if beat_unit is None:
-            seq_len = x.size(1)
-            beat_unit = torch.arange(seq_len, device=x.device).unsqueeze(0).expand(x.size(0), -1)
-
-        pos_emb = self.pe[beat_unit]  # shape: (batch_size, seq_len, d_model)
-        return x + pos_emb

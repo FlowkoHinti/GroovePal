@@ -1,10 +1,10 @@
 import argparse
-import subprocess
-import os
-import sys
 import glob
 import shutil
+import subprocess
+import sys
 from pathlib import Path
+
 
 def unique_target(path: Path) -> Path:
     """
@@ -22,6 +22,7 @@ def unique_target(path: Path) -> Path:
             return candidate
         i += 1
 
+
 def run_on_folder(exe_path: Path, folder: Path) -> bool:
     """
     Run the exe on a single folder. Returns True on success.
@@ -32,6 +33,7 @@ def run_on_folder(exe_path: Path, folder: Path) -> bool:
     except subprocess.CalledProcessError as e:
         print(f"[ERROR] Execution failed for {folder} with error: {e}")
         return False
+
 
 def move_jsons_up(from_dir: Path, to_dir: Path) -> int:
     """
@@ -49,6 +51,7 @@ def move_jsons_up(from_dir: Path, to_dir: Path) -> int:
         print(f"Moved JSON: {src} -> {target}")
     return moved
 
+
 def cleanup_mid_txt(folder: Path) -> int:
     """
     Delete .mid, .midi, and .txt files within 'folder' (non-recursive).
@@ -65,6 +68,7 @@ def cleanup_mid_txt(folder: Path) -> int:
             except OSError as e:
                 print(f"Error deleting {p}: {e}")
     return deleted
+
 
 def main():
     parser = argparse.ArgumentParser(description="Run DNAConsole.exe on subfolders, collect JSONs, and clean up.")
@@ -118,6 +122,7 @@ def main():
         print(f"Subfolder '{sub.name}' done. JSONs moved: {moved_jsons}, files deleted: {deleted_files}")
 
     print("All subfolders processed.")
+
 
 if __name__ == "__main__":
     main()

@@ -5,9 +5,9 @@ import torch
 from torch.utils.data import DataLoader
 
 from Configs import MAX_SEQUENCE_LENGTH
-from GrooveModel import Tokenizers
 from GrooveModel.CollateFunctions import pad_pack_batch, pad_truncate_batch
 from GrooveModel.Datasets import DNANextTokenDataset
+from GrooveModel.Tokenizer.MultiTaskDnaTokenizer import MultiTaskDnaTokenizer
 from GrooveModel.Utils.SpecialTokens import SpecialTokens
 
 # Paths
@@ -20,10 +20,11 @@ ds_conf = {
     'convert_to_tensor': True,
 }
 
+
 # --- Dataset Tests ---
 
 def test_dataset_loads_and_returns_tensor_pair():
-    dataset = DNANextTokenDataset(SimpleNamespace(**ds_conf), 'unit_test', tokenizer=Tokenizers.MultiTaskDnaTokenizer)
+    dataset = DNANextTokenDataset(SimpleNamespace(**ds_conf), 'unit_test', tokenizer=MultiTaskDnaTokenizer)
 
     x, y = dataset[0]
 
@@ -36,7 +37,7 @@ def test_dataset_loads_and_returns_tensor_pair():
 
 
 def test_dataset_multiple_samples():
-    dataset = DNANextTokenDataset(SimpleNamespace(**ds_conf), 'unit_test', tokenizer=Tokenizers.MultiTaskDnaTokenizer)
+    dataset = DNANextTokenDataset(SimpleNamespace(**ds_conf), 'unit_test', tokenizer=MultiTaskDnaTokenizer)
 
     sample_count = min(10, len(dataset))
     for i in range(sample_count):
@@ -69,9 +70,10 @@ def test_collate_fn_padding_and_alignment():
     # Check alignment
     assert torch.equal(padded_targets[0, 0], padded_inputs[0, 1])
 
+
 def test_collate_fn_with_real_data():
     bs = 16
-    dataset = DNANextTokenDataset(SimpleNamespace(**ds_conf), 'unit_test', tokenizer=Tokenizers.MultiTaskDnaTokenizer)
+    dataset = DNANextTokenDataset(SimpleNamespace(**ds_conf), 'unit_test', tokenizer=MultiTaskDnaTokenizer)
     loader = DataLoader(dataset, batch_size=bs, collate_fn=pad_pack_batch)
 
     batch = next(iter(loader))  # One full batch
@@ -89,7 +91,6 @@ def test_collate_fn_with_real_data():
     assert lengths.shape[0] == bs
 
 
-
 def test_pad_truncate_batch_padding_and_truncation():
     seq_dim = 7
     tok = lambda v, n: torch.stack([torch.tensor([v] * seq_dim, dtype=torch.int) for _ in range(n)])
@@ -97,9 +98,9 @@ def test_pad_truncate_batch_padding_and_truncation():
     long_seq_len = MAX_SEQUENCE_LENGTH + 100  # exceeds max, should be truncated
     short_seq_len = MAX_SEQUENCE_LENGTH - 200  # under max, should be padded
 
-    input_1 = tok(1, long_seq_len)     # [1124, 7]
+    input_1 = tok(1, long_seq_len)  # [1124, 7]
     target_1 = tok(2, long_seq_len)
-    input_2 = tok(3, short_seq_len)    # [824, 7]
+    input_2 = tok(3, short_seq_len)  # [824, 7]
     target_2 = tok(4, short_seq_len)
 
     batch = [(input_1, target_1), (input_2, target_2)]

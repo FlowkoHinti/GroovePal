@@ -60,12 +60,12 @@ class MultiTaskDNAMetrics(BaseMetrics):
     """
 
     def __init__(
-        self,
-        metric_names: Iterable[str],
-        device: torch.device,
-        ignore_index: Optional[int] = None,
-        head_index: Optional[Dict[str, int]] = None,
-        regression_heads: Optional[List[str]] = None,
+            self,
+            metric_names: Iterable[str],
+            device: torch.device,
+            ignore_index: Optional[int] = None,
+            head_index: Optional[Dict[str, int]] = None,
+            regression_heads: Optional[List[str]] = None,
     ):
         self.metric_names = list(metric_names)
         self.device = device
@@ -74,9 +74,9 @@ class MultiTaskDNAMetrics(BaseMetrics):
         # Indices in targets' last dim (adjust if your layout differs)
         self.head_index = head_index or {
             "instrument": 0,
-            "velocity": 1,       # regression (tokenized)
+            "velocity": 1,  # regression (tokenized)
             "beat_unit": 2,
-            "offset": 3,         # regression (tokenized)
+            "offset": 3,  # regression (tokenized)
             "grid_factor": 4,
             "bpm": 5,
             "time_signature": 6,
@@ -151,7 +151,7 @@ class MultiTaskDNAMetrics(BaseMetrics):
                     continue
                 num_classes = logits.size(-1)
                 idx = self.head_index[head]
-                tgt_bt = targets[:, :, idx]                   # (B,T)
+                tgt_bt = targets[:, :, idx]  # (B,T)
 
                 # Flatten for accuracy; perplexity can use (B,T,C)
                 logits_flat = logits.reshape(-1, num_classes)

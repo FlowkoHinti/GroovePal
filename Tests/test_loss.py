@@ -1,4 +1,5 @@
 import math
+
 import pytest
 import torch
 import torch.nn.functional as F
@@ -105,9 +106,9 @@ def test_weight_formulas_match_manual(basic_tasks):
     mae_base = F.l1_loss(pred_mae, targ_mae, reduction="mean")
 
     manual = (
-        torch.exp(-s_ce) * ce_base + s_ce
-        + 0.5 * torch.exp(-s_mse) * mse_base + 0.5 * s_mse
-        + torch.exp(-0.5 * s_mae) * mae_base + 0.5 * s_mae
+            torch.exp(-s_ce) * ce_base + s_ce
+            + 0.5 * torch.exp(-s_mse) * mse_base + 0.5 * s_mse
+            + torch.exp(-0.5 * s_mae) * mae_base + 0.5 * s_mae
     )
     assert torch.allclose(total, manual.squeeze(), rtol=1e-6, atol=1e-6)
 
@@ -133,7 +134,7 @@ def test_reduction_sum(basic_tasks):
 
     total, _ = loss(outputs, targets, diagnostics=False)
 
-    ce  = F.cross_entropy(logits, targets_ce, reduction="sum")
+    ce = F.cross_entropy(logits, targets_ce, reduction="sum")
     mse = F.mse_loss(pred_mse, targ_mse, reduction="sum")
     mae = F.l1_loss(pred_mae, targ_mae, reduction="sum")
 
@@ -149,7 +150,8 @@ def test_ce_kwargs_ignore_index_and_weight(basic_tasks):
     class_weights = torch.tensor([1.0, 2.0, 0.5, 1.5], dtype=torch.float32)
     ce_kwargs = {"semantic": {"ignore_index": 255, "weight": class_weights}}
 
-    loss = UncertaintyWeightedMultiTaskLoss(basic_tasks, reduction="mean", init_log_vars={"semantic": 0.0}, ce_kwargs=ce_kwargs)
+    loss = UncertaintyWeightedMultiTaskLoss(basic_tasks, reduction="mean", init_log_vars={"semantic": 0.0},
+                                            ce_kwargs=ce_kwargs)
 
     # Make a tiny batch where one label is ignored
     logits = torch.randn(3, C, requires_grad=True)

@@ -1,13 +1,13 @@
 dataset:
   dna_path: Data/pre_training          # Folder containing subfolders: train/, val/, test/
   convert_to_tensor: true              # Convert token sequences to tensors
-  subset: 1000                         # (Optional) Load only the first N samples
+  #subset: 1000                         # (Optional) Load only the first N samples
   shuffle: true                        # Shuffle the dataset in the DataLoader
   num_workers: 4                       # Data loading parallelism
 
   tokenizer:
     trim_leading_empty_measures: true
-    absolute_grid_units: false
+    absolute_grid_units: true
 
 embedding:
   instruments:
@@ -52,11 +52,11 @@ model:
   slstm_at: [7, 13]
 
 train:
-  model_name: multitask_relGridUnits_mixedLoss
+  model_name: multitask_absGridUnits_mixedLoss
   save_dir: Models
   device: cuda
   batch_size: 32
-  epochs: 27
+  epochs: 10
 
   initial_lr: 0.001
   weight_decay: 0.1
@@ -64,7 +64,7 @@ train:
   use_mixed_precision: true
   monitor: val_loss
   mode: min
-  patience: 5
+  patience: 4
   load_best_on_start: false
   metrics: ['accuracy','top_k_accuracy@3', 'perplexity', 'mse', 'mae']
 

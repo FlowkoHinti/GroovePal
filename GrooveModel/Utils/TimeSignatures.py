@@ -38,7 +38,6 @@ class RemappedTimeSignatures(IntEnum):
 TIME_SIGNATURE_TOKEN_SIZE = len(TimeSignatures) + SPECIAL_TOKEN_SIZE
 UNKNOWN_TIME_SIGNATURE_ID = RemappedTimeSignatures.Unknown
 
-
 _TIME_SIGNATURE_NAME_LOOKUP = {
     (4, 4): "Time_4_4",
     (3, 4): "Time_3_4",
@@ -54,7 +53,6 @@ _TIME_SIGNATURE_NAME_LOOKUP = {
     (3, 2): "Time_3_2",
     # Add more if needed
 }
-
 
 ID_TO_TIME_SIGNATURE = {
     RemappedTimeSignatures[name]: (numerator, denominator)

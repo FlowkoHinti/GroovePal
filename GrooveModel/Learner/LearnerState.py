@@ -1,7 +1,9 @@
 from dataclasses import dataclass, field
-from typing import Optional, Dict, List, Literal
+from typing import Optional, Dict, List
+
 from torch import nn, optim
 from torch.utils.data import DataLoader
+
 
 @dataclass
 class LearnerState:

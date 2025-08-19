@@ -7,7 +7,7 @@ OFFSET_TOKEN_SIZE = OFFSET_TICKS_RESOLUTION + SPECIAL_TOKEN_SIZE  # total size i
 
 
 def encode_offset_ticks(offset: int, ticks_per_grid_unit: int = OFFSET_TICKS_RESOLUTION, start_at_zero=False,
-                        resolution: int = OFFSET_TICKS_RESOLUTION, include_padding: bool=True) -> int:
+                        resolution: int = OFFSET_TICKS_RESOLUTION, include_padding: bool = True) -> int:
     """
     Convert the offset value in ticks to a quantized index, offset by SPECIAL_TOKEN_SIZE.
     Offsets are clamped to [-ticks_per_grid_unit/2, +ticks_per_grid_unit/2].
@@ -25,7 +25,7 @@ def encode_offset_ticks(offset: int, ticks_per_grid_unit: int = OFFSET_TICKS_RES
 
 
 def decode_offset_ticks(norm_offset: int, ticks_per_grid_unit: int = OFFSET_TICKS_RESOLUTION, start_at_zero=False,
-                        resolution: int = OFFSET_TICKS_RESOLUTION, include_padding: bool=True) -> int:
+                        resolution: int = OFFSET_TICKS_RESOLUTION, include_padding: bool = True) -> int:
     """
     Convert a quantized index (with special token offset) back to the offset in ticks.
     Assumes offsets are within [-ticks_per_grid_unit/2, +ticks_per_grid_unit/2].
@@ -41,7 +41,8 @@ def decode_offset_ticks(norm_offset: int, ticks_per_grid_unit: int = OFFSET_TICK
     return int(round(offset))
 
 
-def normalize_offset(offset: int, ticks_per_grid_unit: int = OFFSET_TICKS_RESOLUTION, start_at_zero: bool = False) -> float:
+def normalize_offset(offset: int, ticks_per_grid_unit: int = OFFSET_TICKS_RESOLUTION,
+                     start_at_zero: bool = False) -> float:
     """
     Normalize an offset in ticks to a float in [-1, 1] or [0, 1].
     Offsets are clamped to [-ticks_per_grid_unit/2, +ticks_per_grid_unit/2].
@@ -57,7 +58,8 @@ def normalize_offset(offset: int, ticks_per_grid_unit: int = OFFSET_TICKS_RESOLU
     return float(normalized)
 
 
-def denormalize_offset(norm_offset: float, ticks_per_grid_unit: int = OFFSET_TICKS_RESOLUTION, start_at_zero: bool = False) -> int:
+def denormalize_offset(norm_offset: float, ticks_per_grid_unit: int = OFFSET_TICKS_RESOLUTION,
+                       start_at_zero: bool = False) -> int:
     """
     Convert a normalized offset back to ticks.
     Produces values in [-ticks_per_grid_unit/2, +ticks_per_grid_unit/2].
@@ -70,6 +72,7 @@ def denormalize_offset(norm_offset: float, ticks_per_grid_unit: int = OFFSET_TIC
         offset = norm_offset * max_offset
 
     return int(round(offset))
+
 
 def normalize_offset_tensor(off_ids, dtype=torch.float32) -> torch.Tensor:
     off_idx = (off_ids - SPECIAL_TOKEN_SIZE).clamp(min=0, max=OFFSET_TICKS_RESOLUTION - 1)

@@ -4,61 +4,65 @@ from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence
 from Configs import MAX_SEQUENCE_LENGTH
 from GrooveModel.Utils.SpecialTokens import SpecialTokens
 
-def pad_pack_batch(batch):
-    inputs, targets = zip(*batch)
 
-    # Get sequence lengths BEFORE padding
-    lengths = torch.tensor([len(seq) for seq in inputs], dtype=torch.long)
+def _prepare_batch(
+        batch,
+        *,
+        max_len: int | None = None,
+        do_pack: bool = False,
+        batch_first: bool = True,
+) -> tuple:
+    """
+    Common batch prep: optional truncate -> length -> sort(desc) -> pad -> (optional) pack.
 
-    # Sort sequences by length in descending order (required by pack_padded_sequence)
+    Returns (padded_inputs, padded_targets, lengths) unless do_pack=True,
+    in which case it returns (padded_inputs, padded_targets, packed_inputs, lengths).
+
+    Notes:
+    - `lengths` are sorted (desc) to match the returned padded tensors.
+    - `pack_padded_sequence` requires sorted lengths; we enforce that here.
+    """
+    inputs, targets = zip(*batch)  # sequences of 1D/2D tensors
+
+    # Optional truncation
+    if max_len is not None:
+        inputs = [seq[:max_len] for seq in inputs]
+        targets = [seq[:max_len] for seq in targets]
+
+    # Lengths BEFORE padding
+    lengths = torch.as_tensor([len(seq) for seq in inputs], dtype=torch.long)
+
+    # Sort by length (desc) for pack_padded_sequence
     lengths, sort_idx = lengths.sort(descending=True)
     inputs = [inputs[i] for i in sort_idx]
     targets = [targets[i] for i in sort_idx]
 
-    # Pad sequences
-    padded_inputs = pad_sequence(inputs, batch_first=True, padding_value=float(SpecialTokens.PAD))
-    padded_targets = pad_sequence(targets, batch_first=True, padding_value=float(SpecialTokens.PAD))
+    # Pad
+    pad_val = float(SpecialTokens.PAD)
+    padded_inputs = pad_sequence(inputs, batch_first=batch_first, padding_value=pad_val)
+    padded_targets = pad_sequence(targets, batch_first=batch_first, padding_value=pad_val)
 
-    # Create packed sequence
-    packed_inputs = pack_padded_sequence(padded_inputs, lengths, batch_first=True)
-
-    return padded_inputs, padded_targets, packed_inputs, lengths
-
-
-def pad_batch(batch):
-    inputs, targets = zip(*batch)
-
-    # Get sequence lengths BEFORE padding
-    lengths = torch.tensor([len(seq) for seq in inputs], dtype=torch.long)
-
-    # Sort sequences by length in descending order
-    sorted_lengths, sorted_idx = lengths.sort(descending=True)
-    inputs = [inputs[i] for i in sorted_idx]
-    targets = [targets[i] for i in sorted_idx]
-
-    # Pad sequences
-    padded_inputs = pad_sequence(inputs, batch_first=True, padding_value=float(SpecialTokens.PAD))
-    padded_targets = pad_sequence(targets, batch_first=True, padding_value=float(SpecialTokens.PAD))
+    if do_pack:
+        # pack_padded_sequence expects CPU lengths
+        packed_inputs = pack_padded_sequence(
+            padded_inputs, lengths.cpu(), batch_first=batch_first, enforce_sorted=True
+        )
+        return padded_inputs, padded_targets, packed_inputs, lengths
 
     return padded_inputs, padded_targets, lengths
 
+
+def pad_pack_batch(batch):
+    """Pad + pack (no truncation)."""
+    return _prepare_batch(batch, do_pack=True)
+
+
+def pad_batch(batch):
+    """Pad only (no truncation, no packing)."""
+    # Fixed: now returns the sorted `lengths` to match the padded order.
+    return _prepare_batch(batch, do_pack=False)
+
+
 def pad_truncate_batch(batch):
-    inputs, targets = zip(*batch)
-
-    # Truncate each sequence to max_length
-    truncated_inputs = [seq[:MAX_SEQUENCE_LENGTH] for seq in inputs]
-    truncated_targets = [seq[:MAX_SEQUENCE_LENGTH] for seq in targets]
-
-    # Get sequence lengths AFTER truncation, BEFORE padding
-    lengths = torch.tensor([min(len(seq), MAX_SEQUENCE_LENGTH) for seq in truncated_inputs], dtype=torch.long)
-
-    # Sort by sequence lengths (descending)
-    sorted_lengths, sorted_idx = lengths.sort(descending=True)
-    truncated_inputs = [truncated_inputs[i] for i in sorted_idx]
-    truncated_targets = [truncated_targets[i] for i in sorted_idx]
-
-    # Pad sequences
-    padded_inputs = pad_sequence(truncated_inputs, batch_first=True, padding_value=float(SpecialTokens.PAD))
-    padded_targets = pad_sequence(truncated_targets, batch_first=True, padding_value=float(SpecialTokens.PAD))
-
-    return padded_inputs, padded_targets, sorted_lengths
+    """Truncate to MAX_SEQUENCE_LENGTH, then pad (no packing)."""
+    return _prepare_batch(batch, max_len=MAX_SEQUENCE_LENGTH, do_pack=False)

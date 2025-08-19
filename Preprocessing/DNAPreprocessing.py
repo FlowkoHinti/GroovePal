@@ -1,10 +1,10 @@
 import json
 import logging
 from pathlib import Path
+
 from tqdm import tqdm
 
 from GrooveModel.Utils.BeatsPerMinute import MIN_BPM, MAX_BPM
-from GrooveModel.Utils.TimeSignatures import TimeSignatures
 
 # Logging setup (already present in your code)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

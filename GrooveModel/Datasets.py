@@ -6,12 +6,14 @@ from typing import Union
 from omegaconf import DictConfig
 from torch.utils.data import Dataset
 
-from GrooveModel.Tokenizers import tokens_to_tensor
+from GrooveModel.Tokenizer.Tokenizer import DnaTokenizer
+
 
 def load_dna_json(dna_path: str):
     """Load DNA JSON file."""
     with open(dna_path, 'rb') as f:
         return json.load(f)
+
 
 def get_all_dna_json_paths(dna_path: Union[str, PathLike]):
     """Return all DNA JSON file paths in the directory."""
@@ -20,8 +22,9 @@ def get_all_dna_json_paths(dna_path: Union[str, PathLike]):
         raise FileNotFoundError(f'No DNA JSON files found in {dna_path}')
     return [os.path.join(dna_path, f) for f in json_files]
 
+
 class DNANextTokenDataset(Dataset):
-    def __init__(self, cfg: DictConfig, split: str, transform=None, tokenizer=None):
+    def __init__(self, cfg: DictConfig, split: str, transform=None, tokenizer: type[DnaTokenizer]=None):
         self.cfg = cfg
         self.split = split
         self.transform = transform
@@ -67,7 +70,7 @@ class DNANextTokenDataset(Dataset):
         target_tokens = tokens[1:]
 
         if self.convert_to_tensor:
-            input_tokens = tokens_to_tensor(input_tokens)
-            target_tokens = tokens_to_tensor(target_tokens)
+            input_tokens = self.tokenizer.tokens_to_tensor(input_tokens)
+            target_tokens = self.tokenizer.tokens_to_tensor(target_tokens)
 
         return input_tokens, target_tokens

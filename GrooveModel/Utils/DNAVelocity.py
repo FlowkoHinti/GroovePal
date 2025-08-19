@@ -11,14 +11,16 @@ VELOCITY_RESOLUTION = (VELOCITY_MAX - VELOCITY_MIN) + 1  # 128
 EFFECTIVE_VELOCITY_RESOLUTION = VELOCITY_RESOLUTION
 VELOCITY_TOKEN_SIZE = EFFECTIVE_VELOCITY_RESOLUTION + SPECIAL_TOKEN_SIZE
 
+
 def _round_half_up(x: float) -> int:
     return int(x + 0.5)
 
+
 def encode_velocity(
-    velocity: float,
-    resolution: int = VELOCITY_RESOLUTION,                     # canonical calc resolution (always 128)
-    effective_resolution: int = EFFECTIVE_VELOCITY_RESOLUTION, # token resolution (e.g., 64)
-    include_padding: bool = True
+        velocity: float,
+        resolution: int = VELOCITY_RESOLUTION,  # canonical calc resolution (always 128)
+        effective_resolution: int = EFFECTIVE_VELOCITY_RESOLUTION,  # token resolution (e.g., 64)
+        include_padding: bool = True
 ) -> int:
     """
     Quantize a velocity value in [0, 1] to a discrete index.
@@ -49,10 +51,10 @@ def encode_velocity(
 
 
 def decode_velocity(
-    encoded_velocity: int,
-    resolution: int = VELOCITY_RESOLUTION,                     # canonical calc resolution
-    effective_resolution: int = EFFECTIVE_VELOCITY_RESOLUTION, # must match encoding
-    include_padding: bool = True
+        encoded_velocity: int,
+        resolution: int = VELOCITY_RESOLUTION,  # canonical calc resolution
+        effective_resolution: int = EFFECTIVE_VELOCITY_RESOLUTION,  # must match encoding
+        include_padding: bool = True
 ) -> float:
     """
     Decode a velocity index back into a normalized [0, 1] float.
@@ -69,6 +71,7 @@ def decode_velocity(
         raise ValueError(f"encoded index out of range for effective_resolution={effective_resolution}.")
 
     return index / float(effective_resolution - 1)
+
 
 def normalize_velocity_tensor(
         vel_ids: torch.Tensor,
