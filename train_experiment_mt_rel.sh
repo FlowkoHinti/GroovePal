@@ -3,7 +3,7 @@
 #SBATCH --job-name=train_groove
 #SBATCH --output=Log/%x_%j.out
 #SBATCH --error=Log/%x_%j.err
-#SBATCH --time=4-00:00
+#SBATCH --time=5-00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
@@ -29,8 +29,10 @@ trap on_sigusr1 USR1
 trap on_term TERM
 
 # ===== ENVIRONMENT =====
+set +u   # allow unset vars temporarily
 eval "$(conda shell.bash hook)"
 conda activate /home2/fhinterberger/miniconda/envs/dna_xlstm/
+set -u   # restore strict mode
 
 # Working directory
 cd /data/fhinterberger/GroovePal
