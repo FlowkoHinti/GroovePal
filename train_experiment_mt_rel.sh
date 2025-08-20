@@ -1,6 +1,6 @@
 #!/bin/bash
 # ===== SLURM SETTINGS =====
-#SBATCH --job-name=train_groove
+#SBATCH --job-name=groovepal
 #SBATCH --output=Log/%x_%j.out
 #SBATCH --error=Log/%x_%j.err
 #SBATCH --time=5-00:00
@@ -8,7 +8,6 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem-per-cpu=4G
-#SBATCH --gres=gpu:1
 #SBATCH --chdir=/data/fhinterberger/GroovePal  # alternative to manual cd
 
 set -euo pipefail
