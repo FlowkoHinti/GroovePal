@@ -1,9 +1,12 @@
 dataset:
   dna_path: Data/pre_training          # Folder containing subfolders: train/, val/, test/
-  convert_to_tensor: true              # Convert token sequences to tensors
   #subset: 1000                         # (Optional) Load only the first N samples
   shuffle: true                        # Shuffle the dataset in the DataLoader
   num_workers: 4                       # Data loading parallelism
+  persistent_workers: true            # workers persist over epochs
+  prefetch_factor: 2                  # how many batches to prefetch
+  pin_memory: true                    # allocate batches in page-locked (“pinned”) memory
+  drop_last: true                     # drop last smaller batch
 
   tokenizer:
     trim_leading_empty_measures: true
@@ -56,7 +59,7 @@ train:
   save_dir: Models
   device: cuda
   batch_size: 8
-  epochs: 10
+  epochs: 20
 
   initial_lr: 0.001
   weight_decay: 0.1

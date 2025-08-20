@@ -81,15 +81,3 @@ class DnaTokenizer(ABC):
     @abstractmethod
     def tokenize(song_json, **kwargs) -> list[Any] | torch.Tensor:
         pass
-
-    @staticmethod
-    @abstractmethod
-    def tokens_to_tensor(tokens: list[Any]) -> torch.Tensor:
-        """Batch multiple DNATokens into a single tensor."""
-        pass
-
-    @staticmethod
-    @abstractmethod
-    def tensor_to_tokens(tensor: torch.Tensor) -> list[Any]:
-        """Convert a tensor back into a list of DNATokens."""
-        pass

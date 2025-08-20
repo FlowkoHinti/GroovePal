@@ -32,7 +32,6 @@ class MultiTaskDNAxLSTM(WeightDecayOptimGroupMixin, nn.Module):
         # self.positional_encoding = BeatPositionalEncoding(embedding_dim=self.token_embedding.embedding_dim)
         self.emb_dropout = nn.Dropout(model_config.dropout) if model_config.add_embedding_dropout else nn.Identity()
 
-        # TODO: MAYBE BEATUNIT ALSO AS REGRESSION
         self.classification_heads = nn.ModuleDict({
             name: nn.Linear(self.token_embedding.embedding_dim, vocab_size)
             for name, vocab_size in {

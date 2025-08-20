@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 from dacite import from_dict, Config as DaciteConfig
 from omegaconf import DictConfig, OmegaConf
@@ -54,11 +55,24 @@ class MultiTaskDNALearner(BaseDNALearner):
         #     ds_conf, split="test", tokenizer=MultiTaskDNATokenizer
         # )
 
+        num_workers = ds_conf.get("num_workers", 4)
+        use_persistent = ds_conf.get("persistent_workers", True) and num_workers > 0
+
         common_loader_args = {
             "batch_size": self.cfg.train.batch_size,
-            "num_workers": ds_conf.get("num_workers", 4),
+            "num_workers": num_workers,
+            "persistent_workers": use_persistent,
+            "pin_memory": ds_conf.get("pin_memory", True),  # True if training on GPU
             "collate_fn": CollateFunctions.pad_truncate_batch,
+            "drop_last": ds_conf.get("drop_last", True),
         }
+
+        # Only set prefetch_factor when workers are used
+        if num_workers > 0:
+            common_loader_args["prefetch_factor"] = ds_conf.get("prefetch_factor", 1)
+
+        if self.device.type == "cuda":
+            common_loader_args["pin_memory_device"] = str(self.device)
 
         self.train_loader = DataLoader(self.train_dataset, shuffle=ds_conf.get("shuffle", True), **common_loader_args)
         self.val_loader = DataLoader(self.val_dataset, shuffle=False, **common_loader_args)

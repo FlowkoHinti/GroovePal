@@ -10,17 +10,29 @@ from GrooveModel.Tokenizer.Tokenizer import DnaTokenizer
 
 
 def load_dna_json(dna_path: str):
-    """Load DNA JSON file."""
-    with open(dna_path, 'rb') as f:
-        return json.load(f)
+    """Load DNA data from .json (list) or .jsonl (one JSON object per line)."""
+    if dna_path.endswith(".jsonl"):
+        records = []
+        with open(dna_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    records.append(json.loads(line))
+        return records
+    else:
+        # .json
+        with open(dna_path, "rb") as f:
+            return json.load(f)  # expected to be a list
 
 
 def get_all_dna_json_paths(dna_path: Union[str, PathLike]):
-    """Return all DNA JSON file paths in the directory."""
-    json_files = [f for f in os.listdir(dna_path) if f.endswith('.json')]
-    if not json_files:
-        raise FileNotFoundError(f'No DNA JSON files found in {dna_path}')
-    return [os.path.join(dna_path, f) for f in json_files]
+    """Return all DNA JSON/JSONL file paths in the directory."""
+    all_files = [f for f in os.listdir(dna_path) if f.endswith(".json") or f.endswith(".jsonl")]
+    if not all_files:
+        raise FileNotFoundError(f'No DNA JSON/JSONL files found in {dna_path}')
+    # Prefer .jsonl order first (optional), then .json
+    all_files.sort(key=lambda x: (not x.endswith(".jsonl"), x))
+    return [os.path.join(dna_path, f) for f in all_files]
 
 
 class DNANextTokenDataset(Dataset):
@@ -47,7 +59,6 @@ class DNANextTokenDataset(Dataset):
             all_dnas = all_dnas[:subset]
 
         self.dnas = all_dnas
-        self.convert_to_tensor = getattr(cfg, "convert_to_tensor", False)
 
     def __len__(self):
         return len(self.dnas)
@@ -59,18 +70,14 @@ class DNANextTokenDataset(Dataset):
             item = self.transform(item)
 
         if self.tokenizer:
-            tokens = self.tokenizer.tokenize(item, **self.tokenizer_kwargs)
+            tokens = self.tokenizer.tokenize(item, **self.tokenizer_kwargs)  # (N, 7) LongTensor
         else:
             raise ValueError("Tokenizer must be provided")
 
-        if len(tokens) < 2:
+        if tokens.size(0) < 2:
             raise ValueError("Token sequence too short for next-token prediction")
 
         input_tokens = tokens[:-1]
         target_tokens = tokens[1:]
-
-        if self.convert_to_tensor:
-            input_tokens = self.tokenizer.tokens_to_tensor(input_tokens)
-            target_tokens = self.tokenizer.tokens_to_tensor(target_tokens)
 
         return input_tokens, target_tokens
