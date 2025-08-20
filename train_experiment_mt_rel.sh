@@ -6,8 +6,8 @@
 #SBATCH --time=5-00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4
-#SBATCH --mem-per-cpu=4G
+#SBATCH --cpus-per-task=2
+#SBATCH --mem-per-cpu=8G
 #SBATCH --chdir=/data/fhinterberger/GroovePal  # alternative to manual cd
 
 set -euo pipefail
