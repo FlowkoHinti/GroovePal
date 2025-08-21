@@ -21,28 +21,37 @@ export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 export MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 export PYTHONUNBUFFERED=1
 
-# Show which conda env is active
-echo "CONDA_PREFIX: $CONDA_PREFIX"
 
-# Show CUDA_HOME and CUDA_LIB
-echo "CUDA_HOME:    $CUDA_HOME"
-echo "CUDA_LIB:     $CUDA_LIB"
+# --- CUDA toolchain autodetect (conda first, then system) ---
+# Prefer the conda toolchain if installed
+if [ -n "$CONDA_PREFIX" ] && [ -x "$CONDA_PREFIX/bin/nvcc" ]; then
+  export CUDA_HOME="$CONDA_PREFIX"
+else
+  # Fallback: try to infer from whatever nvcc is on PATH
+  if command -v nvcc >/dev/null 2>&1; then
+    NVCC_PATH="$(command -v nvcc)"
+    export CUDA_HOME="$(dirname "$(dirname "$NVCC_PATH")")"
+  fi
+fi
 
-# Show PATH entries relevant to nvcc
-echo "PATH includes CUDA bin?"
-echo $PATH | tr ':' '\n' | grep -E "cuda|$CONDA_PREFIX"
+# Set correct lib path
+if [ -n "$CUDA_HOME" ]; then
+  if [ -d "$CUDA_HOME/lib64" ]; then
+    export CUDA_LIB="$CUDA_HOME/lib64"
+  else
+    export CUDA_LIB="$CUDA_HOME/lib"
+  fi
+  export PATH="$CUDA_HOME/bin:$PATH"
+  export LD_LIBRARY_PATH="$CUDA_LIB:${LD_LIBRARY_PATH:-}"
+fi
 
-# Show LD_LIBRARY_PATH entries relevant to CUDA libs
-echo "LD_LIBRARY_PATH includes CUDA lib?"
-echo $LD_LIBRARY_PATH | tr ':' '\n' | grep -E "cuda|$CONDA_PREFIX"
-
-# Check if nvcc is found
-echo "nvcc location: $(which nvcc 2>/dev/null || echo 'not found')"
-nvcc --version || echo "nvcc not working"
-
-# Check if libcublas is visible
-echo "libcublas in CUDA_LIB?"
-ls -l $CUDA_LIB/libcublas* 2>/dev/null || echo "no libcublas found"
+# --- Diagnostics ---
+echo "CONDA_PREFIX : $CONDA_PREFIX"
+echo "CUDA_HOME    : ${CUDA_HOME:-<unset>}"
+echo "CUDA_LIB     : ${CUDA_LIB:-<unset>}"
+echo "which nvcc   : $(command -v nvcc || echo 'not found')"
+[ -n "$CUDA_HOME" ] && ls -l "$CUDA_HOME/bin/nvcc" || true
+[ -n "$CUDA_LIB" ]  && ls -l "$CUDA_LIB"/libcublas* 2>/dev/null || echo "cuBLAS not found in CUDA_LIB"
 
 # Quick PyTorch GPU availability test
 python - <<'PY'
