@@ -19,17 +19,17 @@ dependencies:
   - ninja
   - gxx_linux-64=13.2.0
 
-  # CUDA toolchain (12.4)
-  - cuda=12.4
-  - cuda-toolkit=12.4
-  - cuda-nvcc=12.4
-  - cuda-cccl=12.4
-
-  # PyTorch stack (conda-native)
+  # PyTorch stack (built for CUDA 11.8)
   - pytorch=2.5.1
-  - pytorch-cuda=12.4
   - torchvision=0.20.1
   - torchaudio=2.5.1
+  - pytorch-cuda=11.8       # matches your cluster driver
+
+  # CUDA toolchain (nvcc + headers for 11.8)
+  - cuda-nvcc=11.8
+  - cuda-cccl=11.8
+  - cuda-cudart-dev=11.8    # headers for cuda_runtime.h etc.
+  - cuda-libraries-dev=11.8 # headers/libs for cuBLAS/cuRAND/etc.
 
   - pip:
       # Extra ML / data packages

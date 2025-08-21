@@ -21,6 +21,10 @@ export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 export MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 export PYTHONUNBUFFERED=1
 
+echo "CONDA_PREFIX: $CONDA_PREFIX"
+echo "CUDA_HOME: $CUDA_HOME"
+echo "CUDA_LIB: $CUDA_LIB"
+
 # (Optional) traps for preemption/termination
 on_sigusr1() { echo "[$(date)] SIGUSR1: save a checkpoint here."; }
 on_term()    { echo "[$(date)] SIGTERM: graceful exit."; exit 0; }
