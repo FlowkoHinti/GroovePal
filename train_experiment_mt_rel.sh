@@ -21,20 +21,37 @@ export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 export MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 export PYTHONUNBUFFERED=1
 
-export CUDA_HOME="$CONDA_PREFIX"           # nvcc lives in $CONDA_PREFIX/bin
-export PATH="$CUDA_HOME/bin:$PATH"
+# Show which conda env is active
+echo "CONDA_PREFIX: $CONDA_PREFIX"
 
-# xLSTM’s JIT looks for CUDA_LIB to link -lcublas
-export CUDA_LIB="$CONDA_PREFIX/lib"
-export LD_LIBRARY_PATH="$CUDA_LIB:${LD_LIBRARY_PATH:-}"
+# Show CUDA_HOME and CUDA_LIB
+echo "CUDA_HOME:    $CUDA_HOME"
+echo "CUDA_LIB:     $CUDA_LIB"
 
-# quick checks
-nvcc --version
+# Show PATH entries relevant to nvcc
+echo "PATH includes CUDA bin?"
+echo $PATH | tr ':' '\n' | grep -E "cuda|$CONDA_PREFIX"
+
+# Show LD_LIBRARY_PATH entries relevant to CUDA libs
+echo "LD_LIBRARY_PATH includes CUDA lib?"
+echo $LD_LIBRARY_PATH | tr ':' '\n' | grep -E "cuda|$CONDA_PREFIX"
+
+# Check if nvcc is found
+echo "nvcc location: $(which nvcc 2>/dev/null || echo 'not found')"
+nvcc --version || echo "nvcc not working"
+
+# Check if libcublas is visible
+echo "libcublas in CUDA_LIB?"
+ls -l $CUDA_LIB/libcublas* 2>/dev/null || echo "no libcublas found"
+
+# Quick PyTorch GPU availability test
 python - <<'PY'
-import torch, os, glob
-print("Torch:", torch.__version__, "CUDA:", torch.version.cuda, "Avail:", torch.cuda.is_available())
-print("CUDA_LIB:", os.environ.get("CUDA_LIB"))
-print("Has libcublas? ", bool(glob.glob(os.environ.get("CUDA_LIB","") + "/libcublas*")))
+import torch, os
+print("Torch version:", torch.__version__)
+print("Torch built for CUDA:", torch.version.cuda)
+print("CUDA available?", torch.cuda.is_available())
+print("CUDA device count:", torch.cuda.device_count())
+print("CUDA_LIB env:", os.environ.get("CUDA_LIB"))
 PY
 
 # (Optional) traps for preemption/termination
