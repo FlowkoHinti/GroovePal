@@ -21,9 +21,21 @@ export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 export MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 export PYTHONUNBUFFERED=1
 
-echo "CONDA_PREFIX: $CONDA_PREFIX"
-echo "CUDA_HOME: $CUDA_HOME"
-echo "CUDA_LIB: $CUDA_LIB"
+export CUDA_HOME="$CONDA_PREFIX"           # nvcc lives in $CONDA_PREFIX/bin
+export PATH="$CUDA_HOME/bin:$PATH"
+
+# xLSTM’s JIT looks for CUDA_LIB to link -lcublas
+export CUDA_LIB="$CONDA_PREFIX/lib"
+export LD_LIBRARY_PATH="$CUDA_LIB:${LD_LIBRARY_PATH:-}"
+
+# quick checks
+nvcc --version
+python - <<'PY'
+import torch, os, glob
+print("Torch:", torch.__version__, "CUDA:", torch.version.cuda, "Avail:", torch.cuda.is_available())
+print("CUDA_LIB:", os.environ.get("CUDA_LIB"))
+print("Has libcublas? ", bool(glob.glob(os.environ.get("CUDA_LIB","") + "/libcublas*")))
+PY
 
 # (Optional) traps for preemption/termination
 on_sigusr1() { echo "[$(date)] SIGUSR1: save a checkpoint here."; }
