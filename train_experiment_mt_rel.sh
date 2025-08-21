@@ -75,6 +75,25 @@ eval "$(conda shell.bash hook)"
 conda activate /home2/fhinterberger/miniconda/envs/dna_xlstm/
 set -u   # restore strict mode
 
+# Toolchains
+export CC="$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-cc"
+export CXX="$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-c++"
+export CUDAHOSTCXX="$CXX"
+
+# Target GPU
+CAP=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d ' ')
+export TORCH_CUDA_ARCH_LIST="${CAP:-6.1;7.5;8.6}"
+
+# Verbose compile
+export TORCH_CUDA_VERBOSE_BUILD=1
+export MAX_JOBS=1
+export VERBOSE=1
+
+# More Diagnostics
+echo "gcc: $($CC --version | head -1)"
+echo "g++: $($CXX --version | head -1)"
+echo "TORCH_CUDA_ARCH_LIST=$TORCH_CUDA_ARCH_LIST"
+
 # Working directory
 cd /data/fhinterberger/GroovePal
 
