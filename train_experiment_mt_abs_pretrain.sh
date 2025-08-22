@@ -1,6 +1,6 @@
 #!/bin/bash
 # ===== SLURM SETTINGS =====
-#SBATCH --job-name=mt_relgu
+#SBATCH --job-name=mt_absgu
 #SBATCH --output=Log/%x_%j.out
 #SBATCH --error=Log/%x_%j.err
 #SBATCH --time=5-00:00
