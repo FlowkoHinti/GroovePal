@@ -34,13 +34,13 @@ class BaseDNALearner(ABC):
         pass
 
     @abstractmethod
-    def _setup_optimizer(self):
-        """Initializes the optimizer with weight decay applied to appropriate parameters."""
+    def _setup_criterion(self):
+        """Instantiate and initialize the loss function."""
         pass
 
     @abstractmethod
-    def _setup_criterion(self):
-        """Instantiate and initialize the loss function."""
+    def _setup_optimizer(self):
+        """Initializes the optimizer with weight decay applied to appropriate parameters."""
         pass
 
     @abstractmethod

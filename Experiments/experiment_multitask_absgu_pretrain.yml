@@ -10,7 +10,7 @@ dataset:
 
   tokenizer:
     trim_leading_empty_measures: true
-    absolute_grid_units: false
+    absolute_grid_units: true
 
 embedding:
   instruments:
@@ -27,7 +27,7 @@ embedding:
     embedding_dim: 8
   beat_units:
     embedding_dim: 8
-    absolute_beat_units: false
+    absolute_beat_units: true
   normalize_embeddings: false
 
 model:
@@ -55,11 +55,11 @@ model:
   slstm_at: [7, 13]
 
 train:
-  model_name: multitask_relGridUnits_mixedLoss
+  model_name: multitask_relativeGridUnits
   save_dir: Models
   device: cuda
   batch_size: 32
-  epochs: 20
+  epochs: 30
 
   initial_lr: 0.001
   weight_decay: 0.1
@@ -67,7 +67,7 @@ train:
   use_mixed_precision: true
   monitor: val_loss
   mode: min
-  patience: 4
+  patience: 3
   load_best_on_start: false
   metrics: ['accuracy','top_k_accuracy@3', 'perplexity', 'mse', 'mae']
 

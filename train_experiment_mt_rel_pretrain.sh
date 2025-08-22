@@ -1,6 +1,6 @@
 #!/bin/bash
 # ===== SLURM SETTINGS =====
-#SBATCH --job-name=groovepal
+#SBATCH --job-name=mt_relgu
 #SBATCH --output=Log/%x_%j.out
 #SBATCH --error=Log/%x_%j.err
 #SBATCH --time=5-00:00
@@ -98,4 +98,4 @@ echo "TORCH_CUDA_ARCH_LIST=$TORCH_CUDA_ARCH_LIST"
 cd /data/fhinterberger/GroovePal
 
 # ===== RUN =====
-python Main.py --train experiment_multitask_relgu_mixedloss
+python Main.py --train experiment_multitask_relgu_pretrain

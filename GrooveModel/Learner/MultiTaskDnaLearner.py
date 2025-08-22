@@ -1,4 +1,3 @@
-import numpy as np
 import torch
 from dacite import from_dict, Config as DaciteConfig
 from omegaconf import DictConfig, OmegaConf
@@ -51,9 +50,9 @@ class MultiTaskDNALearner(BaseDNALearner):
         self.val_dataset = DNANextTokenDataset(
             ds_conf, split="validation", tokenizer=MultiTaskDnaTokenizer
         )
-        # self.test_dataset = DNANextTokenDataset(
-        #     ds_conf, split="test", tokenizer=MultiTaskDNATokenizer
-        # )
+        self.test_dataset = DNANextTokenDataset(
+            ds_conf, split="test", tokenizer=MultiTaskDnaTokenizer
+        )
 
         num_workers = ds_conf.get("num_workers", 4)
         use_persistent = ds_conf.get("persistent_workers", True) and num_workers > 0
@@ -76,7 +75,7 @@ class MultiTaskDNALearner(BaseDNALearner):
 
         self.train_loader = DataLoader(self.train_dataset, shuffle=ds_conf.get("shuffle", True), **common_loader_args)
         self.val_loader = DataLoader(self.val_dataset, shuffle=False, **common_loader_args)
-        # self.test_loader = DataLoader(self.test_dataset, shuffle=False, **common_loader_args)
+        self.test_loader = DataLoader(self.test_dataset, shuffle=False, **common_loader_args)
 
     def _setup_embedding(self):
         self.embedding_config = from_dict(
@@ -96,21 +95,6 @@ class MultiTaskDNALearner(BaseDNALearner):
         self.model.reset_parameters()
         self.model.to(self.device)
 
-    def _setup_optimizer(self):
-        # use your existing group creator (don’t modify it)
-        decay, no_decay = self.model._create_weight_decay_optim_groups()
-        # make order deterministic going forward
-        decay = sort_params_by_name(self.model, list(decay))
-        no_decay = sort_params_by_name(self.model, list(no_decay))
-
-        self.optimizer = torch.optim.AdamW(
-            [
-                {"params": decay, "weight_decay": self.cfg.train.weight_decay},
-                {"params": no_decay, "weight_decay": 0.0},
-            ],
-            lr=self.cfg.train.initial_lr,
-        )
-
     def _setup_criterion(self):
         self.criterion = UncertaintyWeightedMultiTaskLoss(
             tasks={
@@ -128,7 +112,33 @@ class MultiTaskDNALearner(BaseDNALearner):
                        "grid_factor": {"ignore_index": SpecialTokens.PAD},
                        "bpm": {"ignore_index": SpecialTokens.PAD},
                        "time_signature": {"ignore_index": SpecialTokens.PAD}},
+            init_log_vars={
+                "instrument": 0.14,
+                "velocity": 0.14,
+                "beat_unit": 0.14,
+                "offset": 0.14,
+                "grid_factor": 0.14,
+                "bpm": 0.14,
+                "time_signature": 0.14,
+            },
             device=self.device,
+        )
+
+    def _setup_optimizer(self):
+        # use your existing group creator (don’t modify it)
+        decay, no_decay = self.model._create_weight_decay_optim_groups()
+        # make order deterministic going forward
+        decay = sort_params_by_name(self.model, list(decay))
+        no_decay = sort_params_by_name(self.model, list(no_decay))
+        loss_params = [p for p in self.criterion.parameters() if p.requires_grad]
+
+        self.optimizer = torch.optim.AdamW(
+            [
+                {"params": decay, "weight_decay": self.cfg.train.weight_decay, "name": "decay"},
+                {"params": no_decay, "weight_decay": 0.0, "name": "no_decay"},
+                {"params": loss_params, "weight_decay": 0.0, "name": "loss_weights"},
+            ],
+            lr=self.cfg.train.initial_lr,
         )
 
     def _setup_training_objects(self):
