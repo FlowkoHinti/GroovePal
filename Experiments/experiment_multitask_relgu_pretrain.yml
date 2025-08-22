@@ -1,6 +1,6 @@
 dataset:
   dna_path: Data/pre_training          # Folder containing subfolders: train/, val/, test/
-  subset: 1000                         # (Optional) Load only the first N samples
+  #subset: 1000                         # (Optional) Load only the first N samples
   shuffle: true                        # Shuffle the dataset in the DataLoader
   num_workers: 4                       # Data loading parallelism
   persistent_workers: true            # workers persist over epochs
