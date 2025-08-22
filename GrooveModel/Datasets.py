@@ -70,7 +70,7 @@ class DNANextTokenDataset(Dataset):
             item = self.transform(item)
 
         if self.tokenizer:
-            tokens = self.tokenizer.tokenize(item, **self.tokenizer_kwargs)  # (N, 7) LongTensor
+            tokens, beat_positions = self.tokenizer.tokenize(item, **self.tokenizer_kwargs)  # (N, 7) LongTensor
         else:
             raise ValueError("Tokenizer must be provided")
 
@@ -80,4 +80,4 @@ class DNANextTokenDataset(Dataset):
         input_tokens = tokens[:-1]
         target_tokens = tokens[1:]
 
-        return input_tokens, target_tokens
+        return input_tokens, target_tokens, beat_positions

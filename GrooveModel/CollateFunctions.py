@@ -22,12 +22,13 @@ def _prepare_batch(
     - `lengths` are sorted (desc) to match the returned padded tensors.
     - `pack_padded_sequence` requires sorted lengths; we enforce that here.
     """
-    inputs, targets = zip(*batch)  # sequences of 1D/2D tensors
+    inputs, targets, beat_pos = zip(*batch)  # sequences of 1D/2D tensors
 
     # Optional truncation
     if max_len is not None:
         inputs = [seq[:max_len] for seq in inputs]
         targets = [seq[:max_len] for seq in targets]
+        beat_pos = [seq[:max_len] for seq in beat_pos]
 
     # Lengths BEFORE padding
     lengths = torch.as_tensor([len(seq) for seq in inputs], dtype=torch.long)
@@ -36,20 +37,22 @@ def _prepare_batch(
     lengths, sort_idx = lengths.sort(descending=True)
     inputs = [inputs[i] for i in sort_idx]
     targets = [targets[i] for i in sort_idx]
+    beat_pos = [beat_pos[i] for i in sort_idx]
 
     # Pad
     pad_val = float(SpecialTokens.PAD)
     padded_inputs = pad_sequence(inputs, batch_first=batch_first, padding_value=pad_val)
     padded_targets = pad_sequence(targets, batch_first=batch_first, padding_value=pad_val)
+    padded_beat_pos = pad_sequence(beat_pos, batch_first=batch_first, padding_value=pad_val)
 
     if do_pack:
         # pack_padded_sequence expects CPU lengths
         packed_inputs = pack_padded_sequence(
             padded_inputs, lengths.cpu(), batch_first=batch_first, enforce_sorted=True
         )
-        return padded_inputs, padded_targets, packed_inputs, lengths
+        return padded_inputs, padded_targets, padded_beat_pos, packed_inputs, lengths
 
-    return padded_inputs, padded_targets, lengths
+    return padded_inputs, padded_targets, padded_beat_pos, lengths
 
 
 def pad_pack_batch(batch):

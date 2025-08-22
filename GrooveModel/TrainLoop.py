@@ -34,15 +34,15 @@ def run_training_loop(
         for batch in tqdm(learner.train_loader, desc=f"Train Epoch {epoch}", leave=False):
             callback_manager.call("on_batch_begin", learner)
 
-            inputs, targets = batch[0].to(device), batch[1].to(device)
+            inputs, targets, beat_pos = batch[0].to(device), batch[1].to(device), batch[2].to(device)
             learner.optimizer.zero_grad(set_to_none=True)
 
             if use_mixed_precision:
                 with autocast(device.type, dtype=torch.bfloat16):
-                    outputs = learner.model(inputs)
+                    outputs = learner.model((inputs, beat_pos))
                     loss = compute_loss_fn(outputs, targets)
             else:
-                outputs = learner.model(inputs)
+                outputs = learner.model((inputs, beat_pos))
                 loss = compute_loss_fn(outputs, targets)
 
             loss.backward()

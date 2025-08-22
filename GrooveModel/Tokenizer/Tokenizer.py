@@ -79,5 +79,9 @@ class SongData:
 class DnaTokenizer(ABC):
     @staticmethod
     @abstractmethod
-    def tokenize(song_json, **kwargs) -> list[Any] | torch.Tensor:
+    def tokenize(song_json, **kwargs) -> tuple[torch.Tensor, torch.Tensor]:
+        """Tokenizes the song data according to tokenization method
+            :returns: tokens as tensor, beat positions as tensor
+
+        """
         pass

@@ -73,7 +73,8 @@ class MultiTaskDNAxLSTM(WeightDecayOptimGroupMixin, nn.Module):
             small_init_init_(self.regression_heads[output_head][0].weight, dim=self.token_embedding.embedding_dim)
 
     def forward(self, idx: torch.Tensor) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
-        x = self.token_embedding(idx)
+        x, beat_pos = idx
+        x = self.token_embedding(x)
         x = self.emb_dropout(x)
         x = self.xlstm_block_stack(x)
         logits = {head: layer(x) for head, layer in self.classification_heads.items()}
@@ -87,7 +88,8 @@ class MultiTaskDNAxLSTM(WeightDecayOptimGroupMixin, nn.Module):
             state: dict[str, dict[str, tuple[torch.Tensor, ...]]] = None,
             **kwargs
     ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor], dict[str, dict[str, tuple[torch.Tensor, ...]]]]:
-        x = self.token_embedding(idx)
+        x, beat_pos = idx
+        x = self.token_embedding(x)
         x = self.emb_dropout(x)
         x, state = self.xlstm_block_stack.step(x, state=state, **kwargs)
         logits = {head: layer(x) for head, layer in self.classification_heads.items()}
