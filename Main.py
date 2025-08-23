@@ -57,6 +57,8 @@ def main():
     # Instantiate your learner
     learner = MultiTaskDNALearner(cfg)
 
+    #TODO: SAVE A COPY OF PRETRAINED/INTERMEDIATE/MODELS -> TO COMPARE
+
     # Start training
     if args.train:
         learner.train()

@@ -28,7 +28,11 @@ def run_on_folder(exe_path: Path, folder: Path) -> bool:
     Run the exe on a single folder. Returns True on success.
     """
     try:
-        subprocess.run([str(exe_path), str(folder)], check=True)
+        result = subprocess.run([str(exe_path), str(folder)], check=True, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise subprocess.CalledProcessError(-1, result.args, output=result.stdout, stderr=result.stderr)
+        if "Exception" in result.stdout or "Exception" in result.stderr:
+            raise subprocess.CalledProcessError(-1, result.args, output=result.stdout, stderr=result.stderr)
         return True
     except subprocess.CalledProcessError as e:
         print(f"[ERROR] Execution failed for {folder} with error: {e}")

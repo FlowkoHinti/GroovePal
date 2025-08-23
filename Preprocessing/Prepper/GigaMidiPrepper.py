@@ -1,30 +1,13 @@
-import io
 import logging
 import os
-from abc import ABC, abstractmethod
-from pathlib import Path
+import io
 
 from datasets import load_dataset
 from pretty_midi import pretty_midi
 from tqdm import tqdm
 
 from Configs import RNG_SEED
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-# Paths
-BASE_PATH = Path.cwd()
-DATA_PATH = BASE_PATH / 'Data'
-
-# Max number of MIDI/TXT PAIRS per subfolder
-MAX_PAIRS_PER_CHUNK = 25_000
-
-
-class DNAPrepper(ABC):
-    @abstractmethod
-    def prepare(self):
-        """Main preparation pipeline."""
-        pass
+from Preprocessing.Prepper.DNAPrepper import DNAPrepper, BASE_PATH, DATA_PATH, MAX_PAIRS_PER_CHUNK
 
 
 class GigaMidiPrepper(DNAPrepper):
