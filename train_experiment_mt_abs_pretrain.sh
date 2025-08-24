@@ -1,6 +1,6 @@
 #!/bin/bash
 # ===== SLURM SETTINGS =====
-#SBATCH --job-name=mt_relgu
+#SBATCH --job-name=mt_absgu
 #SBATCH --output=Log/%x_%j.out
 #SBATCH --error=Log/%x_%j.err
 #SBATCH --time=5-00:00
@@ -8,6 +8,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem-per-cpu=4G
+#SBATCH --gres=gpu:1
 #SBATCH --chdir=/data/fhinterberger/GroovePal  # alternative to manual cd
 
 set -euo pipefail
@@ -22,19 +23,9 @@ export MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 export PYTHONUNBUFFERED=1
 
 # Conda Prefix injection
-export CONDA_PREFIX=/home2/fhinterberger/miniconda
+export CONDA_PREFIX=/home2/fhinterberger/miniconda/envs/dna_xlstm
+export CUDA_HOME="$CONDA_PREFIX"
 
-# --- CUDA toolchain autodetect (conda first, then system) ---
-# Prefer the conda toolchain if installed
-if [ -n "$CONDA_PREFIX" ] && [ -x "$CONDA_PREFIX/bin/nvcc" ]; then
-  export CUDA_HOME="$CONDA_PREFIX"
-else
-  # Fallback: try to infer from whatever nvcc is on PATH
-  if command -v nvcc >/dev/null 2>&1; then
-    NVCC_PATH="$(command -v nvcc)"
-    export CUDA_HOME="$(dirname "$(dirname "$NVCC_PATH")")"
-  fi
-fi
 
 # Set correct lib path
 if [ -n "$CUDA_HOME" ]; then
@@ -47,13 +38,29 @@ if [ -n "$CUDA_HOME" ]; then
   export LD_LIBRARY_PATH="$CUDA_LIB:${LD_LIBRARY_PATH:-}"
 fi
 
+# Toolchains
+export CC="$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-cc"
+export CXX="$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-c++"
+export CUDAHOSTCXX="$CXX"
+
+# Target GPU
+CAP=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d ' ')
+export TORCH_CUDA_ARCH_LIST="${CAP:-6.1;7.5;8.6}"
+
+# Verbose compile
+export TORCH_CUDA_VERBOSE_BUILD=1
+export MAX_JOBS=1
+export VERBOSE=1
+
 # --- Diagnostics ---
 echo "CONDA_PREFIX : $CONDA_PREFIX"
 echo "CUDA_HOME    : ${CUDA_HOME:-<unset>}"
 echo "CUDA_LIB     : ${CUDA_LIB:-<unset>}"
 echo "which nvcc   : $(command -v nvcc || echo 'not found')"
-[ -n "$CUDA_HOME" ] && ls -l "$CUDA_HOME/bin/nvcc" || true
 [ -n "$CUDA_LIB" ]  && ls -l "$CUDA_LIB"/libcublas* 2>/dev/null || echo "cuBLAS not found in CUDA_LIB"
+echo "gcc: $($CC --version | head -1)"
+echo "g++: $($CXX --version | head -1)"
+echo "TORCH_CUDA_ARCH_LIST=$TORCH_CUDA_ARCH_LIST"
 
 # Quick PyTorch GPU availability test
 python - <<'PY'
@@ -76,25 +83,6 @@ set +u   # allow unset vars temporarily
 eval "$(conda shell.bash hook)"
 conda activate /home2/fhinterberger/miniconda/envs/dna_xlstm/
 set -u   # restore strict mode
-
-# Toolchains
-export CC="$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-cc"
-export CXX="$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-c++"
-export CUDAHOSTCXX="$CXX"
-
-# Target GPU
-CAP=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d ' ')
-export TORCH_CUDA_ARCH_LIST="${CAP:-6.1;7.5;8.6}"
-
-# Verbose compile
-export TORCH_CUDA_VERBOSE_BUILD=1
-export MAX_JOBS=1
-export VERBOSE=1
-
-# More Diagnostics
-echo "gcc: $($CC --version | head -1)"
-echo "g++: $($CXX --version | head -1)"
-echo "TORCH_CUDA_ARCH_LIST=$TORCH_CUDA_ARCH_LIST"
 
 # Working directory
 cd /data/fhinterberger/GroovePal
