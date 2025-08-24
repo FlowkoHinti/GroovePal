@@ -1,6 +1,10 @@
+import json
+from typing import ClassVar
+
 import torch
 
 from GrooveModel.Tokenizer.Tokenizer import DnaTokenizer, SongData
+from GrooveModel.Utils.BeatsPerMinute import encode_bpm, bpm_bin_bounds
 from GrooveModel.Utils.DNAGridFactor import GridFactors
 from GrooveModel.Utils.DNAOffset import encode_offset_ticks
 from GrooveModel.Utils.DNAValue import get_dna_instruments_list, encode_instrument
@@ -9,17 +13,18 @@ from GrooveModel.Vocab import SequentialDnaVocab
 
 
 class SequentialDnaTokenizer(DnaTokenizer):
+    vocab: ClassVar[SequentialDnaVocab] = SequentialDnaVocab()
+
     @staticmethod
     def tokenize(song_json, trim_leading_empty_measures: bool = True,
                  absolute_grid_units: bool = False) -> torch.Tensor:
-
-        vocab = SequentialDnaVocab()
         song_data = SongData.from_json(song_json, trim_leading_empty_measures=trim_leading_empty_measures)
+        bpm_encoded = encode_bpm(song_data.bpm, include_padding=False)
 
         tokens: list[str] = []
 
         tokens.append(f'BOS')
-        tokens.append(f'BPM_{song_data.bpm}')
+        tokens.append(f'Bpm_bin_{bpm_encoded}')
         tokens.append(f'Time_{song_data.numerator}_{song_data.denominator}')
         tokens.append(f'{GridFactors(song_data.grid_factor).name}')
         # -> sentence start token?
@@ -36,8 +41,8 @@ class SequentialDnaTokenizer(DnaTokenizer):
             # If the step is empty (no instruments), add a "rest" token
             if not instruments:
                 tokens.append(f'Rest')
-                tokens.append(f'VEL_{0}')
-                tokens.append(f'OFF_{0}')
+                tokens.append(f'Vel_{0}')
+                tokens.append(f'Off_{0}')
                 tokens.append(f'SEP')
                 continue
 
@@ -49,20 +54,28 @@ class SequentialDnaTokenizer(DnaTokenizer):
                                                      include_padding=False)
 
                 tokens.append(f'{encoded_instrument}')
-                tokens.append(f'VEL_{encoded_velocity}')
-                tokens.append(f'OFF_{encoded_offset}')
+                tokens.append(f'Vel_{encoded_velocity}')
+                tokens.append(f'Off_{encoded_offset}')
             tokens.append(f'SEP')
         tokens.append(f'EOS')
 
-        token_ids = [vocab[t] for t in tokens]
+        token_ids = [SequentialDnaTokenizer.vocab[t] for t in tokens]
         return torch.tensor(token_ids, dtype=torch.long)
 
-# test_json = '../../Data/unit_test/dnas.json'
-# with open(test_json, 'r') as f:
-#     test_json = json.load(f)
-#
-# test_json = test_json[0]
-# SequentialDnaTokenizer.tokenize(test_json, trim_leading_empty_measures=True)
+
+
+
+test_json = f'../../Data/unit_test/unit_test_chunk_1.jsonl'
+
+with open(test_json, "r", encoding="utf-8") as f:
+    for line in f:
+        line = line.strip()
+        if line:
+            SequentialDnaTokenizer.tokenize(json.loads(line), trim_leading_empty_measures=True)
+
+
+
+
 
 # TODO: make it cleaner and faster
 # TODO: truncate and padding

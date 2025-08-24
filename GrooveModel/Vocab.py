@@ -5,7 +5,7 @@ from itertools import chain
 from typing import ClassVar, Mapping, Sequence, Counter
 
 from GrooveModel.Utils.BeatUnit import BEAT_UNIT_TOKEN_SIZE_ABSOLUTE, BEAT_UNIT_TOKEN_SIZE_RELATIVE
-from GrooveModel.Utils.BeatsPerMinute import BPM_TOKEN_SIZE, MIN_BPM, MAX_BPM
+from GrooveModel.Utils.BeatsPerMinute import BPM_TOKEN_SIZE, NUM_BPM_BINS
 from GrooveModel.Utils.DNAGridFactor import GRID_FACTOR_TOKEN_SIZE, GridFactors
 from GrooveModel.Utils.DNAOffset import OFFSET_TOKEN_SIZE, OFFSET_TICKS_RESOLUTION
 from GrooveModel.Utils.DNAValue import DNA_VALUE_TOKEN_SIZE, InstrumentValues
@@ -32,9 +32,9 @@ class SequentialDnaVocab:
     INSTRUMENTS: ClassVar[tuple[str, ...]] = tuple(i.name for i in InstrumentValues)
     GRID_FACTORS: ClassVar[tuple[str, ...]] = tuple(g.name for g in GridFactors)
     TIME_SIGNATURES: ClassVar[tuple[str, ...]] = tuple(ts.name for ts in TimeSignatures)
-    VELOCITIES: ClassVar[tuple[str, ...]] = tuple(f"VEL_{v}" for v in range(VELOCITY_RESOLUTION))
-    OFFSETS: ClassVar[tuple[str, ...]] = tuple(f"OFF_{o}" for o in range(OFFSET_TICKS_RESOLUTION))
-    BPM: ClassVar[tuple[str, ...]] = tuple(f"BPM_{b}" for b in range(MIN_BPM, MAX_BPM + 1))
+    VELOCITIES: ClassVar[tuple[str, ...]] = tuple(f"Vel_{v}" for v in range(VELOCITY_RESOLUTION))
+    OFFSETS: ClassVar[tuple[str, ...]] = tuple(f"Off_{o}" for o in range(OFFSET_TICKS_RESOLUTION))
+    BPM: ClassVar[tuple[str, ...]] = tuple(f"Bpm_bin_{b}" for b in range(NUM_BPM_BINS))
 
     # Derived at construction
     tokens: tuple[str, ...] = field(init=False)

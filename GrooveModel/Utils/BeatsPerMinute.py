@@ -37,7 +37,7 @@ def encode_bpm(bpm: float, include_padding: bool = True) -> int:
     return idx + SPECIAL_TOKEN_SIZE if include_padding else idx
 
 
-def decode_bpm(token: int, include_padding: bool = True, as_int: bool = True):
+def decode_bpm(token: int, include_padding: bool = True, as_int: bool = True) -> int | float:
     """
     Decode a bin token back to the midpoint BPM of that bin.
     If as_int=True, returns an int (rounded). Otherwise returns a float.
@@ -51,7 +51,7 @@ def decode_bpm(token: int, include_padding: bool = True, as_int: bool = True):
     return int(round(mid)) if as_int else mid
 
 
-def bpm_bin_bounds(idx: int):
+def bpm_bin_bounds(idx: int) -> tuple[int, int]:
     """
     Convenience: return (low, high) bounds for bin idx, half-open [low, high).
     """
@@ -59,4 +59,4 @@ def bpm_bin_bounds(idx: int):
         raise ValueError(f"Invalid bin index {idx} (0-{NUM_BPM_BINS - 1})")
     low = MIN_BPM + idx * _BIN_WIDTH
     high = low + _BIN_WIDTH
-    return low, high
+    return round(low), round(high)
