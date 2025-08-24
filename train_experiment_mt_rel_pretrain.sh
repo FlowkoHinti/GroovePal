@@ -21,6 +21,8 @@ export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 export MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 export PYTHONUNBUFFERED=1
 
+# Conda Prefix injection
+export CONDA_PREFIX=/home2/fhinterberger/miniconda
 
 # --- CUDA toolchain autodetect (conda first, then system) ---
 # Prefer the conda toolchain if installed

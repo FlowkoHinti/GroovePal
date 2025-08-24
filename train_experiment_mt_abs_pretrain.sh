@@ -1,6 +1,6 @@
 #!/bin/bash
 # ===== SLURM SETTINGS =====
-#SBATCH --job-name=mt_absgu
+#SBATCH --job-name=mt_relgu
 #SBATCH --output=Log/%x_%j.out
 #SBATCH --error=Log/%x_%j.err
 #SBATCH --time=5-00:00
@@ -21,6 +21,8 @@ export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 export MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 export PYTHONUNBUFFERED=1
 
+# Conda Prefix injection
+export CONDA_PREFIX=/home2/fhinterberger/miniconda
 
 # --- CUDA toolchain autodetect (conda first, then system) ---
 # Prefer the conda toolchain if installed
