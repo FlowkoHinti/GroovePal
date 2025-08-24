@@ -58,7 +58,7 @@ train:
   model_name: multitask_relativeGridUnits
   save_dir: Models
   device: cuda
-  batch_size: 32
+  batch_size: 16
   epochs: 30
 
   initial_lr: 0.001
