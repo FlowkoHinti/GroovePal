@@ -23,7 +23,7 @@ export MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 export PYTHONUNBUFFERED=1
 
 # Conda Prefix injection
-export CONDA_PREFIX=/home2/fhinterberger/miniconda/envs/dna_xlstm
+export CONDA_PREFIX="/home2/fhinterberger/miniconda/envs/dna_xlstm"
 export CUDA_HOME="$CONDA_PREFIX"
 
 
