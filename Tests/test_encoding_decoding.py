@@ -1,5 +1,7 @@
 import unittest
 
+import torch
+
 from GrooveModel.Utils.BeatUnit import BEAT_UNIT_TOKEN_SIZE_RELATIVE, MAX_GRID_UNITS_PER_BAR, MAX_GRID_UNITS_PER_SONG, \
     BEAT_UNIT_TOKEN_SIZE_ABSOLUTE, encode_beat_unit, decode_beat_unit
 from GrooveModel.Utils.BeatsPerMinute import encode_bpm, decode_bpm, BPM_TOKEN_SIZE, MIN_BPM, MAX_BPM, \
@@ -7,11 +9,11 @@ from GrooveModel.Utils.BeatsPerMinute import encode_bpm, decode_bpm, BPM_TOKEN_S
 from GrooveModel.Utils.DNAGridFactor import GridFactors, RemappedGridFactors, encode_grid_factor, decode_grid_factor, \
     GRID_FACTOR_TOKEN_SIZE
 from GrooveModel.Utils.DNAOffset import encode_offset_ticks, OFFSET_TOKEN_SIZE, decode_offset_ticks, \
-    OFFSET_TICKS_RESOLUTION, normalize_offset, denormalize_offset
+    OFFSET_TICKS_RESOLUTION, normalize_offset, denormalize_offset, offset_to_percent_step, percent_step_to_offset
 from GrooveModel.Utils.DNAValue import InstrumentValues, RemappedInstrumentValues, get_dna_instruments_list, \
     encode_instrument, decode_instrument, dna_to_instruments_strings, instruments_strings_to_dna, DNA_VALUE_TOKEN_SIZE
 from GrooveModel.Utils.DNAVelocity import VELOCITY_MIN, VELOCITY_MAX, VELOCITY_RESOLUTION, VELOCITY_TOKEN_SIZE, \
-    encode_velocity, decode_velocity
+    encode_velocity, decode_velocity, EFFECTIVE_VELOCITY_RESOLUTION, normalize_velocity_tensor
 from GrooveModel.Utils.TimeSignatures import TIME_SIGNATURE_TOKEN_SIZE, UNKNOWN_TIME_SIGNATURE_ID, \
     encode_time_signature, decode_time_signature, TimeSignatures, RemappedTimeSignatures
 
@@ -239,6 +241,153 @@ class TestOffsetEncoding(unittest.TestCase):
         d = denormalize_offset(0.5, self.ticks_per_grid_unit, start_at_zero=True)
         self.assertIsInstance(d, int)
 
+    def test_percent_step_default_ranges_centered(self):
+        # percent_step = 5% -> max step id = 20 over [-100%, +100%]
+        percent_step = 0.05
+        cases = [
+            (-self.max_half, -20),  # -60 ticks -> -100% -> -20
+            (-30, -10),  # -50% -> -10
+            (0, 0),  # 0% -> 0
+            (30, 10),  # +50% -> +10
+            (self.max_half, 20),  # +60 ticks -> +100% -> +20
+        ]
+        for offset, expected_step in cases:
+            step = offset_to_percent_step(
+                offset,
+                ticks_per_grid_unit=self.ticks_per_grid_unit,
+                start_at_zero=False,
+                percent_step=percent_step,
+            )
+            self.assertEqual(step, expected_step)
+
+    def test_percent_step_default_ranges_start_at_zero(self):
+        # percent_step = 5% -> max step id = 20 over [0%, 100%]
+        percent_step = 0.05
+        cases = [
+            (-self.max_half, 0),  # -60 ticks -> 0%
+            (-30, 5),  # 25%
+            (0, 10),  # 50%
+            (30, 15),  # 75%
+            (self.max_half, 20),  # 100%
+        ]
+        for offset, expected_step in cases:
+            step = offset_to_percent_step(
+                offset,
+                ticks_per_grid_unit=self.ticks_per_grid_unit,
+                start_at_zero=True,
+                percent_step=percent_step,
+            )
+            self.assertEqual(step, expected_step)
+
+        # --- Round-trip fidelity for steps <-> ticks ---
+
+    def test_percent_step_roundtrip_centered(self):
+        percent_step = 0.05
+        # Cover ends, midpoints, and around zero
+        step_ids = [-20, -11, -1, 0, 1, 9, 20]
+        for sid in step_ids:
+            # step -> offset -> step should be idempotent (clamped to legal)
+            off = percent_step_to_offset(
+                sid,
+                ticks_per_grid_unit=self.ticks_per_grid_unit,
+                start_at_zero=False,
+                percent_step=percent_step,
+            )
+            sid_back = offset_to_percent_step(
+                off,
+                ticks_per_grid_unit=self.ticks_per_grid_unit,
+                start_at_zero=False,
+                percent_step=percent_step,
+            )
+            self.assertEqual(sid_back, max(-20, min(20, sid)))
+
+            # offset -> step -> offset should approximate original (±1 tick)
+            off2 = percent_step_to_offset(
+                sid_back,
+                ticks_per_grid_unit=self.ticks_per_grid_unit,
+                start_at_zero=False,
+                percent_step=percent_step,
+            )
+            self.assertAlmostEqual(off2, off, delta=1)
+
+    def test_percent_step_roundtrip_start_at_zero(self):
+        percent_step = 0.05
+        step_ids = [0, 1, 10, 19, 20]
+        for sid in step_ids:
+            off = percent_step_to_offset(
+                sid,
+                ticks_per_grid_unit=self.ticks_per_grid_unit,
+                start_at_zero=True,
+                percent_step=percent_step,
+            )
+            sid_back = offset_to_percent_step(
+                off,
+                ticks_per_grid_unit=self.ticks_per_grid_unit,
+                start_at_zero=True,
+                percent_step=percent_step,
+            )
+            self.assertEqual(sid_back, max(0, min(20, sid)))
+
+            off2 = percent_step_to_offset(
+                sid_back,
+                ticks_per_grid_unit=self.ticks_per_grid_unit,
+                start_at_zero=True,
+                percent_step=percent_step,
+            )
+            self.assertAlmostEqual(off2, off, delta=1)
+
+        # --- Clamping and validation ---
+
+    def test_percent_step_clamps_from_offset(self):
+        percent_step = 0.05
+        # Offsets beyond ±max_half map to extreme step ids
+        sid_small = offset_to_percent_step(
+            -999, self.ticks_per_grid_unit, start_at_zero=False, percent_step=percent_step
+        )
+        sid_large = offset_to_percent_step(
+            999, self.ticks_per_grid_unit, start_at_zero=False, percent_step=percent_step
+        )
+        self.assertEqual(sid_small, -20)
+        self.assertEqual(sid_large, 20)
+
+        # In start_at_zero mode clamp to [0, 20]
+        sid_small_0 = offset_to_percent_step(
+            -999, self.ticks_per_grid_unit, start_at_zero=True, percent_step=percent_step
+        )
+        sid_large_0 = offset_to_percent_step(
+            999, self.ticks_per_grid_unit, start_at_zero=True, percent_step=percent_step
+        )
+        self.assertEqual(sid_small_0, 0)
+        self.assertEqual(sid_large_0, 20)
+
+    def test_percent_step_clamps_from_step_id(self):
+        percent_step = 0.05
+        # Centered: clamp to [-20, 20]
+        off_small = percent_step_to_offset(
+            -999, self.ticks_per_grid_unit, start_at_zero=False, percent_step=percent_step
+        )
+        off_large = percent_step_to_offset(
+            999, self.ticks_per_grid_unit, start_at_zero=False, percent_step=percent_step
+        )
+        self.assertEqual(off_small, -self.max_half)
+        self.assertEqual(off_large, self.max_half)
+
+        # Start-at-zero: clamp to [0, 20]
+        off_small_0 = percent_step_to_offset(
+            -999, self.ticks_per_grid_unit, start_at_zero=True, percent_step=percent_step
+        )
+        off_large_0 = percent_step_to_offset(
+            999, self.ticks_per_grid_unit, start_at_zero=True, percent_step=percent_step
+        )
+        self.assertEqual(off_small_0, -self.max_half)
+        self.assertEqual(off_large_0, self.max_half)
+
+    def test_percent_step_invalid_param_raises(self):
+        with self.assertRaises(ValueError):
+            offset_to_percent_step(0, self.ticks_per_grid_unit, percent_step=0.0)
+        with self.assertRaises(ValueError):
+            percent_step_to_offset(0, self.ticks_per_grid_unit, percent_step=1.5)
+
 
 class TestBPMEncoding(unittest.TestCase):
 
@@ -373,39 +522,72 @@ class TestBPMEncoding(unittest.TestCase):
 class TestVelocityEncoding(unittest.TestCase):
 
     def test_velocity_constants(self):
+        # Canonical MIDI range remains 0..127 (128 values)
         self.assertEqual(VELOCITY_MIN, 0)
         self.assertEqual(VELOCITY_MAX, 127)
         self.assertEqual(VELOCITY_RESOLUTION, 128)
-        self.assertEqual(VELOCITY_TOKEN_SIZE, VELOCITY_RESOLUTION + SPECIAL_TOKEN_SIZE)
+
+        # Effective token resolution (coarser grid; currently 64 = 128//2)
+        self.assertEqual(EFFECTIVE_VELOCITY_RESOLUTION, VELOCITY_RESOLUTION // 2)
+
+        # Token size uses EFFECTIVE resolution + SPECIAL padding space
+        self.assertEqual(VELOCITY_TOKEN_SIZE, EFFECTIVE_VELOCITY_RESOLUTION + SPECIAL_TOKEN_SIZE)
 
     def test_encoding_bounds(self):
         encoded_min = encode_velocity(0.0)
         encoded_max = encode_velocity(1.0)
 
         self.assertEqual(encoded_min, SPECIAL_TOKEN_SIZE)
-        self.assertEqual(encoded_max, SPECIAL_TOKEN_SIZE + VELOCITY_RESOLUTION - 1)
+        self.assertEqual(encoded_max, SPECIAL_TOKEN_SIZE + EFFECTIVE_VELOCITY_RESOLUTION - 1)
 
     def test_decoding_bounds(self):
         decoded_min = decode_velocity(SPECIAL_TOKEN_SIZE)
-        decoded_max = decode_velocity(SPECIAL_TOKEN_SIZE + VELOCITY_RESOLUTION - 1)
+        decoded_max = decode_velocity(SPECIAL_TOKEN_SIZE + EFFECTIVE_VELOCITY_RESOLUTION - 1)
 
         self.assertAlmostEqual(decoded_min, 0.0, delta=1e-6)
         self.assertAlmostEqual(decoded_max, 1.0, delta=1e-6)
 
     def test_roundtrip_accuracy(self):
+        # Roundtrip tolerance is governed by the EFFECTIVE grid, not the canonical 128 grid
+        tol = 1 / (EFFECTIVE_VELOCITY_RESOLUTION - 1)
         test_values = [0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0]
         for val in test_values:
             token = encode_velocity(val)
             decoded = decode_velocity(token)
-            self.assertAlmostEqual(val, decoded, delta=1 / (VELOCITY_RESOLUTION - 1),
-                                   msg=f"Failed roundtrip for velocity {val}")
+            self.assertAlmostEqual(val, decoded, delta=tol, msg=f"Failed roundtrip for velocity {val}")
 
     def test_encoding_precision_rounding(self):
-        # Value slightly above halfway between two quantization levels should round up
-        step_size = 1 / (VELOCITY_RESOLUTION - 1)
-        midpoint = step_size * 5 + step_size / 2 + 1e-6  # halfway between step 5 and 6
-        encoded = encode_velocity(midpoint)
+        """
+        Because encoding does:
+          1) round-half-up on the 128-step grid
+          2) project to the effective grid with another round-half-up
+        we test a boundary that should map to effective index 6.
+        The switch from eff=5 -> eff=6 happens when steps_128 crosses ~11.087...
+        So any steps_128 >= 12 should yield eff=6.
+        Choose velocity such that round_half_up(velocity*127) == 12.
+        """
+        target_steps_128 = 12
+        v = target_steps_128 / 127.0  # center of the interval works well
+        encoded = encode_velocity(v)
         self.assertEqual(encoded, SPECIAL_TOKEN_SIZE + 6)
+
+    def test_normalize_velocity_tensor(self):
+        # Includes clamping to [0, EFFECTIVE-1] after removing SPECIAL padding
+        ids = torch.tensor([
+            SPECIAL_TOKEN_SIZE - 5,                             # underflow -> clamp to 0
+            SPECIAL_TOKEN_SIZE + 0,
+            SPECIAL_TOKEN_SIZE + (EFFECTIVE_VELOCITY_RESOLUTION - 1),
+            SPECIAL_TOKEN_SIZE + EFFECTIVE_VELOCITY_RESOLUTION + 10,  # overflow -> clamp to max
+        ], dtype=torch.long)
+
+        norm = normalize_velocity_tensor(ids)
+        self.assertTrue(torch.all(norm >= 0))
+        self.assertTrue(torch.all(norm <= 1))
+
+        self.assertAlmostEqual(norm[0].item(), 0.0, places=6)
+        self.assertAlmostEqual(norm[1].item(), 0.0, places=6)
+        self.assertAlmostEqual(norm[2].item(), 1.0, places=6)
+        self.assertAlmostEqual(norm[3].item(), 1.0, places=6)
 
 
 class TestTimeSignatureEncoding(unittest.TestCase):

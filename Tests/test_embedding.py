@@ -6,6 +6,9 @@ from omegaconf import OmegaConf
 
 from GrooveModel.Embedding.BeatPositionalEncoding import BeatPositionalEncoding
 from GrooveModel.Embedding.MultiTaskDnaEmbedding import MultiTaskDNAEmbeddingConfig, MultiTaskDNAEmbedding
+from GrooveModel.Utils.BeatsPerMinute import NUM_BPM_BINS
+from GrooveModel.Utils.DNAOffset import OFFSET_TICKS_RESOLUTION
+from GrooveModel.Utils.DNAVelocity import VELOCITY_MAX, EFFECTIVE_VELOCITY_RESOLUTION
 
 embedding_config_string = f"""
 instruments:
@@ -46,11 +49,11 @@ def test_embedding_output_shape(embedding_module):
     num_features = 7  # full token structure
     dummy_input = torch.cat([
         torch.randint(1, 8, (batch_size, seq_len, 1)),  # instrument
-        torch.randint(1, 129, (batch_size, seq_len, 1)),  # velocity
+        torch.randint(1, EFFECTIVE_VELOCITY_RESOLUTION+1, (batch_size, seq_len, 1)),  # velocity
         torch.randint(1, 73, (batch_size, seq_len, 1)),  # beat_unit
-        torch.randint(1, 121, (batch_size, seq_len, 1)),  # offset
+        torch.randint(1, OFFSET_TICKS_RESOLUTION, (batch_size, seq_len, 1)),  # offset
         torch.randint(1, 5, (batch_size, seq_len, 1)),  # grid
-        torch.randint(1, 40, (batch_size, seq_len, 1)),  # bpm
+        torch.randint(1, NUM_BPM_BINS, (batch_size, seq_len, 1)),  # bpm
         torch.randint(1, 11, (batch_size, seq_len, 1)),  # time_signature
     ], dim=2)
 
