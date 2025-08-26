@@ -18,7 +18,7 @@ from GrooveModel.Learner.Learner import BaseDNALearner, sort_params_by_name
 from GrooveModel.Learner.LearnerState import LearnerState
 from GrooveModel.Loss import UncertaintyWeightedMultiTaskLoss
 from GrooveModel.Metrics import MultiTaskDNAMetrics
-from GrooveModel.Models import MultiTaskDNAModelConfig, MultiTaskDNAxLSTM
+from GrooveModel.Models import ModelConfigxLstm, MultiTaskDNAxLSTM
 from GrooveModel.Tokenizer.MultiTaskDnaTokenizer import MultiTaskDnaTokenizer
 from GrooveModel.TrainLoop import run_training_loop
 from GrooveModel.Utils.DNAOffset import normalize_offset_tensor
@@ -86,7 +86,7 @@ class MultiTaskDNALearner(BaseDNALearner):
 
     def _setup_model(self):
         model_config = from_dict(
-            MultiTaskDNAModelConfig,
+            ModelConfigxLstm,
             OmegaConf.to_container(self.cfg.model, resolve=True),
             config=DaciteConfig(strict=True)
         )

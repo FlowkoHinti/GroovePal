@@ -1,94 +1,125 @@
-import json
 from typing import ClassVar
 
 import torch
+from pretty_midi import TimeSignature
 
 from GrooveModel.Tokenizer.Tokenizer import DnaTokenizer, SongData
-from GrooveModel.Utils.BeatsPerMinute import encode_bpm, bpm_bin_bounds
+from GrooveModel.Utils.BeatsPerMinute import encode_bpm
 from GrooveModel.Utils.DNAGridFactor import GridFactors
-from GrooveModel.Utils.DNAOffset import encode_offset_ticks
-from GrooveModel.Utils.DNAValue import get_dna_instruments_list, encode_instrument
+from GrooveModel.Utils.DNAOffset import offset_to_percent_step
+from GrooveModel.Utils.DNAValue import get_dna_instruments_list, encode_instrument, InstrumentValues
 from GrooveModel.Utils.DNAVelocity import encode_velocity
+from GrooveModel.Utils.TimeSignatures import encode_time_signature, TimeSignatures
 from GrooveModel.Vocab import SequentialDnaVocab
 
 
 class SequentialDnaTokenizer(DnaTokenizer):
+    """
+    Converts a SongData (parsed from JSON) into a sequence of vocab token IDs
+    and aligned beat positions.
+
+    Features:
+      - Prepends meta tokens: BOS, BPM bin, time signature, grid factor.
+      - Iterates over each grid unit in the song:
+          * Inserts BAR token at bar starts.
+          * If no instruments active → encodes Rest with vel=0, off=0.
+          * Otherwise, encodes each active instrument with velocity and offset.
+          * Appends a SEP token after each step.
+      - Ends with EOS token.
+
+    Returns:
+      (torch.LongTensor token_ids, torch.LongTensor beat_positions)
+    """
+
     vocab: ClassVar[SequentialDnaVocab] = SequentialDnaVocab()
 
     @staticmethod
-    def tokenize(song_json, trim_leading_empty_measures: bool = True,
+    def tokenize(song_json,
+                 trim_leading_empty_measures: bool = True,
                  absolute_grid_units: bool = False) -> tuple[torch.Tensor, torch.Tensor]:
-        song_data = SongData.from_json(song_json, trim_leading_empty_measures=trim_leading_empty_measures)
-        bpm_encoded = encode_bpm(song_data.bpm, include_padding=False)
+        v = SequentialDnaTokenizer.vocab
 
-        tokens: list[str] = []
+        # Parse JSON into structured song data
+        sd = SongData.from_json(song_json, trim_leading_empty_measures=trim_leading_empty_measures)
+
+        # Encode BPM into a discrete bin index
+        bpm_bin = encode_bpm(sd.bpm, include_padding=False)
+        time_signature_name = encode_time_signature(sd.numerator, sd.denominator).name
+        time_signature = TimeSignatures[time_signature_name]
+
+        token_ids: list[int] = []
         beat_positions: list[int] = []
+        ids_append, beats_append = token_ids.append, beat_positions.append
+        ids_extend, beats_extend = token_ids.extend, beat_positions.extend
 
-        meta_sequence = [f'BOS',
-                         f'Bpm_bin_{bpm_encoded}',
-                         f'Time_{song_data.numerator}_{song_data.denominator}',
-                         f'{GridFactors(song_data.grid_factor).name}']
-        tokens.extend(meta_sequence)
+        # ---- META sequence ----
+        ids_extend((
+            v.ID_BOS,
+            v.bpm_id(bpm_bin),
+            v.time_sig_id(time_signature),
+            v.grid_factor_id(GridFactors(sd.grid_factor)),
+        ))
+        beat_positions.extend([0] * len(token_ids))
 
+        # Bar size in grid units
+        grid_units_per_bar = sd.numerator * sd.grid_factor
+        ticks_per_gu = sd.ticks_per_grid_unit
 
-        # Add positional mappings for meta
-        beat_positions.extend([0] * len(meta_sequence))
+        if not sd.dna_units:
+            raise ValueError("Song does not contain any DNA units")
 
-        for grid_unit, dna_unit in enumerate(song_data.dna_units):
-            value = dna_unit.get("Value", 0)
-            instruments = get_dna_instruments_list(value)
+        # ---- MAIN LOOP ----
+        for grid_unit, dna_unit in enumerate(sd.dna_units):
+            # Extract instruments (list of raw codes like 0,1,2,4,...)
+            instruments = get_dna_instruments_list(dna_unit.get("Value", 0))
             velocities = dna_unit.get("VelocityPerValuePart", {})
             offsets = dna_unit.get("OffsetTicksPerValuePart", {})
 
-            # Calculate current beat unit (grid position)
-            beat_unit = song_data.beat_unit_for(grid_unit, absolute=absolute_grid_units)
+            # Beat position for this step
+            beat_unit = sd.beat_unit_for(grid_unit, absolute=absolute_grid_units)
 
-            # -> sentence start token?
+            # Insert BAR marker at measure boundaries
+            if grid_unit % grid_units_per_bar == 0:
+                ids_append(v.ID_BAR)
+                beats_append(beat_unit)
 
-            # If the step is empty (no instruments), add a "rest" token
             if not instruments:
-                rest_sequence = [f'Rest', f'Vel_{0}', f'Off_{0}' f'SEP']
-                tokens.extend(rest_sequence)
-                beat_positions.extend([beat_unit] * len(rest_sequence))
+                # No instruments → encode as REST
+                rest_val = v.ID
+                vel_idx = encode_velocity(velocities.get(str(rest_val), 0), include_padding=False)
+                off_step = offset_to_percent_step(offsets.get(str(rest_val), 0), ticks_per_gu)
+
+                ids_extend((v.instrument_id_from_value(rest_val),
+                            v.vel_id(vel_idx),
+                            v.off_id(off_step),
+                            v.ID_SEP))
+                beats_extend((beat_unit, beat_unit, beat_unit, beat_unit))
                 continue
 
-            # Otherwise, create a token for each active instrument
-            for instrument in instruments:
-                encoded_instrument = encode_instrument(instrument).name
-                encoded_velocity = encode_velocity(velocities.get(str(instrument), 0), include_padding=False)
-                encoded_offset = encode_offset_ticks(offsets.get(str(instrument), 0), song_data.ticks_per_grid_unit,
-                                                     include_padding=False)
-                instrument_sequence = [f'{encoded_instrument}', f'Vel_{encoded_velocity}', f'Off_{encoded_offset}']
-                tokens.extend(instrument_sequence)
-                beat_positions.extend([beat_unit] * len(instrument_sequence))
+            # Encode each active instrument
+            for inst_val in instruments:
+                key = str(inst_val)
+                vel_idx = encode_velocity(velocities.get(key, 0), include_padding=False)
+                off_step = offset_to_percent_step(offsets.get(key, 0), ticks_per_gu)
 
-            tokens.append(f'SEP')
-            beat_positions.append(beat_unit)
+                ids_extend((v.instrument_id_from_value(inst_val),
+                            v.vel_id(vel_idx),
+                            v.off_id(off_step)))
+                beats_extend((beat_unit, beat_unit, beat_unit))
 
-        tokens.append(f'EOS')
-        beat_positions.append(beat_positions[-1])
+            # Step separator
+            ids_append(v.ID_SEP)
+            beats_append(beat_unit)
 
-        token_ids = [SequentialDnaTokenizer.vocab[t] for t in tokens]
+        # ---- EOS ----
+        last_beat = beat_positions[-1] if beat_positions else 0
+        ids_append(v.ID_EOS)
+        beats_append(last_beat)
+
         return torch.tensor(token_ids, dtype=torch.long), torch.tensor(beat_positions, dtype=torch.long)
 
 
-
-
-test_json = f'../../Data/unit_test/unit_test_chunk_1.jsonl'
-
-with open(test_json, "r", encoding="utf-8") as f:
-    for line in f:
-        line = line.strip()
-        if line:
-            SequentialDnaTokenizer.tokenize(json.loads(line), trim_leading_empty_measures=True)
-
-
-
-
-
-# TODO: make it cleaner and faster
 # TODO: truncate and padding
-# TODO: Bin values -> also for other version
 # TODO: Positional encoding -> handle according to SEP
 # TODO: Embedding
 # TODO: Model and Learner

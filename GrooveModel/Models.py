@@ -4,7 +4,10 @@ from typing import Sequence
 import torch
 from torch import nn
 
+from GrooveModel.Embedding.BeatPositionalEncoding import BeatPositionalEncoding
 from GrooveModel.Embedding.MultiTaskDnaEmbedding import MultiTaskDNAEmbedding, MultiTaskDNAEmbeddingConfig
+from GrooveModel.Embedding.SequentialDnaEmbedding import SequentialDNAEmbeddingConfig, SequentialDNAEmbedding
+from GrooveModel.Utils.BeatUnit import MAX_GRID_UNITS_PER_BAR, MAX_GRID_UNITS_PER_SONG
 from GrooveModel.Vocab import INSTRUMENT_VOCAB_SIZE, BEAT_UNIT_ABSOLUTE_VOCAB_SIZE, \
     BEAT_UNIT_RELATIVE_VOCAB_SIZE, TIME_SIGNATURE_VOCAB_SIZE, GRID_FACTOR_VOCAB_SIZE, BPM_VOCAB_SIZE
 from GrooveModel.xlstm.xlstm import xLSTMBlockStack, xLSTMBlockStackConfig
@@ -13,16 +16,16 @@ from GrooveModel.xlstm.xlstm.utils import WeightDecayOptimGroupMixin
 
 
 @dataclass
-class MultiTaskDNAModelConfig(xLSTMBlockStackConfig):
+class ModelConfigxLstm(xLSTMBlockStackConfig):
     tie_weights: bool = False
     weight_decay_on_embedding: bool = False
     add_embedding_dropout: bool = False
 
 
 class MultiTaskDNAxLSTM(WeightDecayOptimGroupMixin, nn.Module):
-    config_class = MultiTaskDNAModelConfig
+    config_class = ModelConfigxLstm
 
-    def __init__(self, model_config: MultiTaskDNAModelConfig, embedding_config: MultiTaskDNAEmbeddingConfig, **kwargs):
+    def __init__(self, model_config: ModelConfigxLstm, embedding_config: MultiTaskDNAEmbeddingConfig, **kwargs):
         super().__init__()
         self.model_config = model_config
 
@@ -115,3 +118,69 @@ class MultiTaskDNAxLSTM(WeightDecayOptimGroupMixin, nn.Module):
                 no_weight_decay.append(embedding.weight)
 
         return tuple(weight_decay), tuple(no_weight_decay)
+
+
+class SequentialDNAxLSTM(WeightDecayOptimGroupMixin, nn.Module):
+    config_class = ModelConfigxLstm
+
+    def __init__(self, model_config: ModelConfigxLstm, embedding_config: SequentialDNAEmbeddingConfig, absolute_beat_units: bool = False, **kwargs):
+        super().__init__()
+        self.model_config = model_config
+
+        self.xlstm_block_stack = xLSTMBlockStack(config=model_config)
+        self.token_embedding = SequentialDNAEmbedding(config=embedding_config)
+        # TODO: UPDATE BPE
+        self.positional_encoding = BeatPositionalEncoding(embedding_dim=self.token_embedding.embedding_dim,
+                                                          max_len=MAX_GRID_UNITS_PER_SONG if absolute_beat_units else MAX_GRID_UNITS_PER_BAR)
+        self.emb_dropout = nn.Dropout(model_config.dropout) if model_config.add_embedding_dropout else nn.Identity()
+
+        self.output_head = nn.Linear(
+            in_features=embedding_config.embedding_dim,
+            out_features=embedding_config.vocab_size,
+            bias=False)
+
+        if model_config.tie_weights:
+            self.output_head.weight = self.token_embedding.embedding.weight
+
+    def reset_parameters(self):
+        self.xlstm_block_stack.reset_parameters()
+
+        small_init_init_(self.token_embedding.weight, dim=self.config.embedding_dim)
+
+        if not self.config.tie_weights:
+            small_init_init_(self.output_head.weight, dim=self.config.embedding_dim)
+
+    def forward(self, idx: torch.Tensor) -> torch.Tensor:
+        x = self.token_embedding(idx)
+        x = self.positional_encoding(x)
+        x = self.emb_dropout(x)
+        x = self.xlstm_block_stack(x)
+        logits = self.output_head(x)
+        return logits
+
+    def step(
+            self, idx: torch.Tensor, state: dict[str, dict[str, tuple[torch.Tensor, ...]]] = None, **kwargs
+    ) -> tuple[torch.Tensor, dict[str, dict[str, tuple[torch.Tensor, ...]]]]:
+        x = self.token_embedding(idx)
+        x = self.positional_encoding(x)
+        x = self.emb_dropout(x)
+        x, state = self.xlstm_block_stack.step(x, state=state, **kwargs)
+        logits = self.output_head(x)
+        return logits, state
+
+    def _create_weight_decay_optim_groups(self, **kwargs) -> tuple[Sequence[nn.Parameter], Sequence[nn.Parameter]]:
+        weight_decay, no_weight_decay = super()._create_weight_decay_optim_groups(**kwargs)
+        # remove token embedding and add it to the correct group, according to the config
+        weight_decay = list(weight_decay)
+        removed = 0
+        for idx in range(len(weight_decay)):
+            if weight_decay[idx - removed] is self.token_embedding.weight:
+                weight_decay.pop(idx - removed)
+                removed += 1
+        weight_decay = tuple(weight_decay)
+        if self.config.weight_decay_on_embedding:
+            weight_decay += (self.token_embedding.weight,)
+        else:
+            no_weight_decay += (self.token_embedding.weight,)
+
+        return weight_decay, no_weight_decay

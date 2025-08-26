@@ -9,7 +9,7 @@ from omegaconf import OmegaConf, DictConfig
 from Configs import BASE_PATH, MAX_SEQUENCE_LENGTH
 from GrooveModel.Datasets import get_all_dna_json_paths, load_dna_json
 from GrooveModel.Embedding.Embedding import MultiTaskDNAEmbeddingConfig
-from GrooveModel.Models import MultiTaskDNAxLSTM, MultiTaskDNAModelConfig
+from GrooveModel.Models import MultiTaskDNAxLSTM, ModelConfigxLstm
 from GrooveModel.Tokenizer.Tokenizer import MultiTaskDnaTokenizer, MultiDnaToken, tokens_to_tensor
 from GrooveModel.Utils.BeatUnit import decode_beat_unit
 from GrooveModel.Utils.DNAOffset import decode_offset_ticks
@@ -27,7 +27,7 @@ def build_model_from_config(cfg: DictConfig, device: torch.device) -> MultiTaskD
     )
 
     model_config = from_dict(
-        MultiTaskDNAModelConfig,
+        ModelConfigxLstm,
         OmegaConf.to_container(cfg.model, resolve=True),
         config=DaciteConfig(strict=True)
     )

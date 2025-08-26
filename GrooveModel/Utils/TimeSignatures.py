@@ -16,7 +16,7 @@ class TimeSignatures(IntEnum):
     Time_3_8 = 9
     Time_6_4 = 10
     Time_3_2 = 11
-    Unknown = 12  # Add this explicitly
+    Time_Unknown = 12  # Add this explicitly
 
 
 class RemappedTimeSignatures(IntEnum):
@@ -32,11 +32,11 @@ class RemappedTimeSignatures(IntEnum):
     Time_3_8 = auto()
     Time_6_4 = auto()
     Time_3_2 = auto()
-    Unknown = auto()  # Ensure a clean symbolic ID for unknown
+    Time_Unknown = auto()  # Ensure a clean symbolic ID for unknown
 
 
 TIME_SIGNATURE_TOKEN_SIZE = len(TimeSignatures) + SPECIAL_TOKEN_SIZE
-UNKNOWN_TIME_SIGNATURE_ID = RemappedTimeSignatures.Unknown
+UNKNOWN_TIME_SIGNATURE_ID = RemappedTimeSignatures.Time_Unknown
 
 _TIME_SIGNATURE_NAME_LOOKUP = {
     (4, 4): "Time_4_4",
@@ -58,7 +58,7 @@ ID_TO_TIME_SIGNATURE = {
     RemappedTimeSignatures[name]: (numerator, denominator)
     for (numerator, denominator), name in _TIME_SIGNATURE_NAME_LOOKUP.items()
 }
-ID_TO_TIME_SIGNATURE[RemappedTimeSignatures.Unknown] = ("?", "?")  # symbolic fallback
+ID_TO_TIME_SIGNATURE[RemappedTimeSignatures.Time_Unknown] = ("?", "?")  # symbolic fallback
 
 
 def encode_time_signature(numerator: int, denominator: int) -> RemappedTimeSignatures:
@@ -71,7 +71,7 @@ def encode_time_signature(numerator: int, denominator: int) -> RemappedTimeSigna
 
     name = _TIME_SIGNATURE_NAME_LOOKUP.get((numerator, denominator))
     if name is None:
-        return RemappedTimeSignatures.Unknown
+        return RemappedTimeSignatures.Time_Unknown
 
     return RemappedTimeSignatures[name]
 

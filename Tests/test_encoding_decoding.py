@@ -595,7 +595,7 @@ class TestTimeSignatureEncoding(unittest.TestCase):
     def test_constants(self):
         self.assertGreater(SPECIAL_TOKEN_SIZE, 0)
         self.assertEqual(TIME_SIGNATURE_TOKEN_SIZE, len(TimeSignatures) + SPECIAL_TOKEN_SIZE)
-        self.assertEqual(UNKNOWN_TIME_SIGNATURE_ID, RemappedTimeSignatures.Unknown)
+        self.assertEqual(UNKNOWN_TIME_SIGNATURE_ID, RemappedTimeSignatures.Time_Unknown)
 
     def test_encoding_valid_signatures(self):
         test_cases = {
@@ -622,16 +622,16 @@ class TestTimeSignatureEncoding(unittest.TestCase):
     def test_encode_unknown_signature_returns_fallback(self):
         self.assertEqual(
             encode_time_signature(5, 8),
-            RemappedTimeSignatures.Unknown
+            RemappedTimeSignatures.Time_Unknown
         )
         self.assertEqual(
             encode_time_signature(11, 16),
-            RemappedTimeSignatures.Unknown
+            RemappedTimeSignatures.Time_Unknown
         )
 
     def test_decode_unknown_id_returns_placeholder(self):
         self.assertEqual(
-            decode_time_signature(RemappedTimeSignatures.Unknown),
+            decode_time_signature(RemappedTimeSignatures.Time_Unknown),
             ("?", "?")
         )
         self.assertEqual(

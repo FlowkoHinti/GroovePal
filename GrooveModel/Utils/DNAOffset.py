@@ -6,6 +6,7 @@ OFFSET_TICKS_RESOLUTION = 120  # usable steps excluding special tokens
 OFFSET_TOKEN_SIZE = OFFSET_TICKS_RESOLUTION + SPECIAL_TOKEN_SIZE  # total size including special tokens
 
 DEFAULT_PERCENT_STEP = 0.05  # 5% per step
+OFFSET_STEPS = int(1 // DEFAULT_PERCENT_STEP)
 
 
 def encode_offset_ticks(offset: int, ticks_per_grid_unit: int = OFFSET_TICKS_RESOLUTION, start_at_zero=False,
