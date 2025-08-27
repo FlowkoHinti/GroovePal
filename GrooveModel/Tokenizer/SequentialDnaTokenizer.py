@@ -85,7 +85,7 @@ class SequentialDnaTokenizer(DnaTokenizer):
 
             if not instruments:
                 # No instruments → encode as REST
-                rest_val = v.ID
+                rest_val = InstrumentValues.Rest
                 vel_idx = encode_velocity(velocities.get(str(rest_val), 0), include_padding=False)
                 off_step = offset_to_percent_step(offsets.get(str(rest_val), 0), ticks_per_gu)
 
@@ -119,9 +119,4 @@ class SequentialDnaTokenizer(DnaTokenizer):
         return torch.tensor(token_ids, dtype=torch.long), torch.tensor(beat_positions, dtype=torch.long)
 
 
-# TODO: truncate and padding
-# TODO: Positional encoding -> handle according to SEP
-# TODO: Embedding
-# TODO: Model and Learner
-# TODO: Define experiments
 # TODO: Pretrained xlstm?

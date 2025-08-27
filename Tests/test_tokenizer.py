@@ -1,4 +1,5 @@
 import unittest
+from itertools import chain
 
 import torch
 
@@ -290,6 +291,14 @@ class TestSequentialTokenizer(unittest.TestCase):
     def tokstr(self, ids: torch.Tensor) -> list[str]:
         return [self.vocab.token(i) for i in ids.tolist()]
 
+    def test_beat_pos_len_equal_token_len(self):
+        steps = [make_step(1) for _ in range(16)] + [make_step(0) for _ in range(12)] + [make_step(2) for _ in range(3)]
+        song = make_song(steps=steps, numerator=4, denominator=4, grid_factor=4, ticks_per_grid_unit=120)
+
+        ids, beats = SequentialDnaTokenizer.tokenize(song)
+        self.assertEqual(ids.shape, beats.shape)
+
+
     def test_meta_bar_sep_eos(self):
         # 4/4, grid_factor=4 → 16 steps per bar (relative beats 0..15 then wrap)
         steps = [make_step(1) for _ in range(16)]
@@ -310,8 +319,8 @@ class TestSequentialTokenizer(unittest.TestCase):
         val = InstrumentValues.Kick.value | InstrumentValues.Snare.value
         steps = [make_step(
             val,
-            vel={InstrumentValues.Kick.value: 1, InstrumentValues.Snare.value: 0.6},
-            off={InstrumentValues.Kick.value: 0, InstrumentValues.Snare.value: 0}
+            vel={InstrumentValues.Kick: 1, InstrumentValues.Snare: 0.6},
+            off={InstrumentValues.Kick: 0, InstrumentValues.Snare: 0}
         )]
         song = make_song(steps=steps, grid_factor=4)
 

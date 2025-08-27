@@ -20,6 +20,7 @@ class ModelConfigxLstm(xLSTMBlockStackConfig):
     tie_weights: bool = False
     weight_decay_on_embedding: bool = False
     add_embedding_dropout: bool = False
+    positional_encoding: bool = False
 
 
 class MultiTaskDNAxLSTM(WeightDecayOptimGroupMixin, nn.Module):
@@ -123,15 +124,20 @@ class MultiTaskDNAxLSTM(WeightDecayOptimGroupMixin, nn.Module):
 class SequentialDNAxLSTM(WeightDecayOptimGroupMixin, nn.Module):
     config_class = ModelConfigxLstm
 
-    def __init__(self, model_config: ModelConfigxLstm, embedding_config: SequentialDNAEmbeddingConfig, absolute_beat_units: bool = False, **kwargs):
+    def __init__(self,
+                 model_config: ModelConfigxLstm,
+                 embedding_config: SequentialDNAEmbeddingConfig,
+                 absolute_grid_units: bool = False, **kwargs):
         super().__init__()
         self.model_config = model_config
 
         self.xlstm_block_stack = xLSTMBlockStack(config=model_config)
         self.token_embedding = SequentialDNAEmbedding(config=embedding_config)
         # TODO: UPDATE BPE
+
         self.positional_encoding = BeatPositionalEncoding(embedding_dim=self.token_embedding.embedding_dim,
-                                                          max_len=MAX_GRID_UNITS_PER_SONG if absolute_beat_units else MAX_GRID_UNITS_PER_BAR)
+                                                          max_len=MAX_GRID_UNITS_PER_SONG if absolute_grid_units else MAX_GRID_UNITS_PER_BAR) \
+            if model_config.positional_encoding else nn.Identity()
         self.emb_dropout = nn.Dropout(model_config.dropout) if model_config.add_embedding_dropout else nn.Identity()
 
         self.output_head = nn.Linear(
@@ -140,19 +146,20 @@ class SequentialDNAxLSTM(WeightDecayOptimGroupMixin, nn.Module):
             bias=False)
 
         if model_config.tie_weights:
-            self.output_head.weight = self.token_embedding.embedding.weight
+            self.output_head.weight = self.token_embedding.weights()
 
     def reset_parameters(self):
         self.xlstm_block_stack.reset_parameters()
 
-        small_init_init_(self.token_embedding.weight, dim=self.config.embedding_dim)
+        small_init_init_(self.token_embedding.weights(), dim=self.model_config.embedding_dim)
 
-        if not self.config.tie_weights:
-            small_init_init_(self.output_head.weight, dim=self.config.embedding_dim)
+        if not self.model_config.tie_weights:
+            small_init_init_(self.output_head.weight, dim=self.model_config.embedding_dim)
 
     def forward(self, idx: torch.Tensor) -> torch.Tensor:
-        x = self.token_embedding(idx)
-        x = self.positional_encoding(x)
+        x, beat_pos = idx
+        x = self.token_embedding(x)
+        x = self.positional_encoding(x, beat_pos)
         x = self.emb_dropout(x)
         x = self.xlstm_block_stack(x)
         logits = self.output_head(x)
@@ -161,8 +168,9 @@ class SequentialDNAxLSTM(WeightDecayOptimGroupMixin, nn.Module):
     def step(
             self, idx: torch.Tensor, state: dict[str, dict[str, tuple[torch.Tensor, ...]]] = None, **kwargs
     ) -> tuple[torch.Tensor, dict[str, dict[str, tuple[torch.Tensor, ...]]]]:
-        x = self.token_embedding(idx)
-        x = self.positional_encoding(x)
+        x, beat_pos = idx
+        x = self.token_embedding(x)
+        x = self.positional_encoding(x, beat_pos)
         x = self.emb_dropout(x)
         x, state = self.xlstm_block_stack.step(x, state=state, **kwargs)
         logits = self.output_head(x)
@@ -174,13 +182,13 @@ class SequentialDNAxLSTM(WeightDecayOptimGroupMixin, nn.Module):
         weight_decay = list(weight_decay)
         removed = 0
         for idx in range(len(weight_decay)):
-            if weight_decay[idx - removed] is self.token_embedding.weight:
+            if weight_decay[idx - removed] is self.token_embedding.weights():
                 weight_decay.pop(idx - removed)
                 removed += 1
         weight_decay = tuple(weight_decay)
-        if self.config.weight_decay_on_embedding:
-            weight_decay += (self.token_embedding.weight,)
+        if self.model_config.weight_decay_on_embedding:
+            weight_decay += (self.token_embedding.weights(),)
         else:
-            no_weight_decay += (self.token_embedding.weight,)
+            no_weight_decay += (self.token_embedding.weights(),)
 
         return weight_decay, no_weight_decay

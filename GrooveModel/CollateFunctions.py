@@ -62,7 +62,6 @@ def pad_pack_batch(batch):
 
 def pad_batch(batch):
     """Pad only (no truncation, no packing)."""
-    # Fixed: now returns the sorted `lengths` to match the padded order.
     return _prepare_batch(batch, do_pack=False)
 
 

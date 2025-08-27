@@ -205,3 +205,48 @@ class MultiTaskDNAMetrics(BaseMetrics):
     @torch.no_grad()
     def compute_all(self) -> Dict[str, float]:
         return {k: float(m.compute()) for k, m in self._metrics.items()}
+
+
+class SequentialDNAMetrics(BaseMetrics):
+    def __init__(
+            self,
+            metric_names: Iterable[str],
+            device: torch.device,
+            ignore_index: Optional[int] = None
+    ):
+        self.metric_names = list(metric_names)
+        self.device = device
+        self.ignore_index = ignore_index
+        self._metrics: Dict[str, torch.nn.Module] = {}
+
+    # ---- lifecycle ----
+    def reset(self) -> None:
+        for m in self._metrics.values():
+            m.reset()
+
+    # ---- metric factories ----
+    def _ensure_cls_metric(self, key: str, name: str, num_classes: int):
+        if key in self._metrics:
+            return
+        if name.startswith("top_k_accuracy@"):
+            k = int(name.split("@", 1)[1])
+            metric = MulticlassAccuracy(num_classes=num_classes, top_k=k, ignore_index=self.ignore_index)
+        elif name == "accuracy":
+            metric = MulticlassAccuracy(num_classes=num_classes, ignore_index=self.ignore_index)
+        elif name == "perplexity":
+            metric = Perplexity(ignore_index=self.ignore_index)
+        else:
+            raise ValueError(f"Unsupported classification metric: {name}")
+        self._metrics[key] = metric.to(self.device)
+
+    # ---- streaming update ----
+    @torch.no_grad()
+    def update_batch(self, outputs: torch.Tensor, targets: torch.Tensor) -> None:
+        # TODO: add
+        pass
+
+
+    # ---- finalize ----
+    @torch.no_grad()
+    def compute_all(self) -> Dict[str, float]:
+        return {k: float(m.compute()) for k, m in self._metrics.items()}

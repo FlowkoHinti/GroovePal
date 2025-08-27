@@ -80,4 +80,4 @@ class DNANextTokenDataset(Dataset):
         input_tokens = tokens[:-1]
         target_tokens = tokens[1:]
 
-        return input_tokens, target_tokens, beat_positions
+        return input_tokens, target_tokens, beat_positions[:-1]

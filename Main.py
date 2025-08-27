@@ -1,9 +1,11 @@
 import argparse
+
 import torch
 from omegaconf import OmegaConf
 
 from Configs import BASE_PATH, MAX_SEQUENCE_LENGTH, RNG_SEED
 from GrooveModel.Learner.MultiTaskDnaLearner import MultiTaskDNALearner
+from GrooveModel.Learner.SequentialDnaLearner import SequentialDnaLearner
 
 
 def compute_embedding_dim(embedding_cfg):
@@ -27,10 +29,13 @@ def inject_paths(cfg):
     return cfg
 
 
-def prepare_config(cfg):
+def prepare_config(cfg, type):
     """Inject dynamic values like embedding_dim and context_length."""
     cfg.model.context_length = MAX_SEQUENCE_LENGTH
-    cfg.model.embedding_dim = compute_embedding_dim(cfg.embedding)
+    if type == 'mt':
+        cfg.model.embedding_dim = compute_embedding_dim(cfg.embedding)
+    else:
+        cfg.model.embedding_dim = cfg.embedding.embedding_dim
     cfg = inject_paths(cfg)
     return cfg
 
@@ -52,12 +57,19 @@ def main():
 
     # Load and patch config
     cfg = OmegaConf.load(config_path)
-    cfg = prepare_config(cfg)
+    model_type = 'mt'
+    if cfg.embedding.get("embedding_dim", None):
+        model_type = 'seq'
 
-    # Instantiate your learner
-    learner = MultiTaskDNALearner(cfg)
+    cfg = prepare_config(cfg, model_type)
 
-    #TODO: SAVE A COPY OF PRETRAINED/INTERMEDIATE/MODELS -> TO COMPARE
+    learner = None
+    if model_type == "mt":
+        learner = MultiTaskDNALearner(cfg)
+    else:
+        learner = SequentialDnaLearner(cfg)
+
+    # TODO: SAVE A COPY OF PRETRAINED/INTERMEDIATE/MODELS -> TO COMPARE
 
     # Start training
     if args.train:

@@ -10,9 +10,9 @@ from GrooveModel.Utils.SpecialTokens import SpecialTokens
 
 @dataclass
 class SequentialDNAEmbeddingConfig:
-    vocab_size: int
-    embedding_dim: int
-    normalize_embeddings: bool
+    vocab_size: int = -1
+    embedding_dim: int = -1
+    normalize_embeddings: bool = False
 
 class SequentialDNAEmbedding(DnaEmbedding):
     def __init__(self, config: SequentialDNAEmbeddingConfig):
@@ -25,6 +25,9 @@ class SequentialDNAEmbedding(DnaEmbedding):
     @property
     def embedding_dim(self) -> int:
         return self._embedding_dim
+
+    def weights(self):
+        return self.embedding.weight
 
     def normalize_embedding(self, embedding: torch.Tensor) -> torch.Tensor:
         if self.normalize_embedding_flag:
