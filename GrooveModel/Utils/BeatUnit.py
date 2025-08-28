@@ -20,10 +20,6 @@ def encode_beat_unit(position: int, absolute: bool = False, include_padding: boo
     :param include_padding: Whether to include padding token.
     :return: Token ID (with SPECIAL_TOKEN_SIZE offset).
     """
-    max_val = MAX_GRID_UNITS_PER_SONG if absolute else MAX_GRID_UNITS_PER_BAR
-
-    if not (0 <= position < max_val):
-        raise ValueError(f"Beat unit position out of bounds: {position} (max allowed: {max_val - 1})")
 
     return position + SPECIAL_TOKEN_SIZE if include_padding else position
 
