@@ -3,6 +3,7 @@ from typing import ClassVar
 import torch
 from pretty_midi import TimeSignature
 
+from Configs import MAX_SEQUENCE_LENGTH
 from GrooveModel.Tokenizer.Tokenizer import DnaTokenizer, SongData
 from GrooveModel.Utils.BeatsPerMinute import encode_bpm
 from GrooveModel.Utils.DNAGridFactor import GridFactors
@@ -80,20 +81,16 @@ class SequentialDnaTokenizer(DnaTokenizer):
 
             # Insert BAR marker at measure boundaries
             if grid_unit % grid_units_per_bar == 0:
+                if MAX_SEQUENCE_LENGTH - len(token_ids) <= grid_units_per_bar * 3:
+                    break
                 ids_append(v.ID_BAR)
                 beats_append(beat_unit)
 
             if not instruments:
                 # No instruments → encode as REST
                 rest_val = InstrumentValues.Rest
-                vel_idx = encode_velocity(velocities.get(str(rest_val), 0), include_padding=False)
-                off_step = offset_to_percent_step(offsets.get(str(rest_val), 0), ticks_per_gu)
-
-                ids_extend((v.instrument_id_from_value(rest_val),
-                            v.vel_id(vel_idx),
-                            v.off_id(off_step),
-                            v.ID_SEP))
-                beats_extend((beat_unit, beat_unit, beat_unit, beat_unit))
+                ids_append(rest_val)
+                beats_append(beat_unit)
                 continue
 
             # Encode each active instrument

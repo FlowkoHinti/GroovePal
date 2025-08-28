@@ -41,8 +41,7 @@ def test_dataset_loads_and_returns_tensor_pair_plus_beats():
     assert beats is not None
     assert isinstance(beats, torch.Tensor)
     assert beats.ndim == 1
-    # tokens had length N, x is tokens[:-1], so beats length should be x_len + 1
-    assert beats.shape[0] == x.shape[0] + 1
+    assert beats.shape[0] == x.shape[0]
 
 
 def test_dataset_multiple_samples_return_triplets():
@@ -57,7 +56,7 @@ def test_dataset_multiple_samples_return_triplets():
         assert x.shape == y.shape
         assert x.shape[1] == 7
         assert beats.ndim == 1
-        assert beats.shape[0] == x.shape[0] + 1
+        assert beats.shape[0] == x.shape[0]
 
 
 # --- Collate Function Tests ---
@@ -112,7 +111,7 @@ def test_collate_fn_with_real_data():
     # beats are padded at the original token length N (inputs are N-1)
     assert padded_beats.ndim == 2
     assert padded_beats.shape[0] == padded_inputs.shape[0]
-    assert padded_beats.shape[1] == padded_inputs.shape[1] + 1
+    assert padded_beats.shape[1] == padded_inputs.shape[1]
 
     assert isinstance(packed_inputs, torch.nn.utils.rnn.PackedSequence)
     assert isinstance(lengths, torch.Tensor)

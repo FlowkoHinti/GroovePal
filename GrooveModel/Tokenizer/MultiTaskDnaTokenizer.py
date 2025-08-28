@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 import torch
 
+from Configs import MAX_SEQUENCE_LENGTH
 from GrooveModel.Tokenizer.Tokenizer import DnaTokenizer, SongData
 from GrooveModel.Utils.BeatUnit import encode_beat_unit
 from GrooveModel.Utils.BeatsPerMinute import encode_bpm
@@ -34,6 +35,8 @@ class MultiTaskDnaTokenizer(DnaTokenizer):
         grid_factor_encoded = encode_grid_factor(song_data.grid_factor)
         bpm_encoded = encode_bpm(song_data.bpm)
 
+        grid_units_per_bar = song_data.numerator * song_data.grid_factor
+
         rows = []
         beat_positions = []
 
@@ -45,6 +48,9 @@ class MultiTaskDnaTokenizer(DnaTokenizer):
             beat_unit = song_data.beat_unit_for(grid_unit, absolute=absolute_grid_units)
             encoded_beat_unit = encode_beat_unit(beat_unit, absolute=absolute_grid_units)
 
+            if grid_unit % grid_units_per_bar == 0:
+                if MAX_SEQUENCE_LENGTH - len(rows) <= grid_units_per_bar * 3:
+                    break
             # Rest
             if not instruments:
                 rows.append([
