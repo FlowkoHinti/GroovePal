@@ -67,14 +67,14 @@ def run_training_loop(
 
         with torch.no_grad():
             for batch in tqdm(learner.val_loader, desc=f"Validation Epoch {epoch}", leave=False):
-                inputs, targets = batch[0].to(device), batch[1].to(device)
+                inputs, targets, beat_pos = batch[0].to(device), batch[1].to(device), batch[2].to(device)
 
                 if use_mixed_precision:
                     with autocast(device.type, dtype=torch.bfloat16):
-                        outputs = learner.model(inputs)
+                        outputs = learner.model((inputs, beat_pos))
                         loss = compute_loss_fn(outputs, targets)
                 else:
-                    outputs = learner.model(inputs)
+                    outputs = learner.model((inputs, beat_pos))
                     loss = compute_loss_fn(outputs, targets)
 
                 total_val_loss += float(loss.item())

@@ -225,8 +225,8 @@ class SequentialDNAMetrics(BaseMetrics):
             m.reset()
 
     # ---- metric factories ----
-    def _ensure_cls_metric(self, key: str, name: str, num_classes: int):
-        if key in self._metrics:
+    def _ensure_cls_metric(self, name: str, num_classes: int):
+        if name in self._metrics:
             return
         if name.startswith("top_k_accuracy@"):
             k = int(name.split("@", 1)[1])
@@ -237,14 +237,23 @@ class SequentialDNAMetrics(BaseMetrics):
             metric = Perplexity(ignore_index=self.ignore_index)
         else:
             raise ValueError(f"Unsupported classification metric: {name}")
-        self._metrics[key] = metric.to(self.device)
+        self._metrics[name] = metric.to(self.device)
 
     # ---- streaming update ----
     @torch.no_grad()
     def update_batch(self, outputs: torch.Tensor, targets: torch.Tensor) -> None:
-        # TODO: add
-        pass
+        # Flatten for accuracy; perplexity can use (B,T,C)
+        outputs_flat = outputs.view(-1, outputs.size(-1))
+        targets_flat = targets.view(-1)
+        num_classes = outputs.size(-1)
 
+        for name in self.metric_names:
+            self._ensure_cls_metric(name, num_classes)
+            m = self._metrics[name]
+            if name == "perplexity":
+                m.update(outputs.to(self.device), targets.to(self.device))
+            else:
+                m.update(outputs_flat.to(self.device), targets_flat.to(self.device))
 
     # ---- finalize ----
     @torch.no_grad()
