@@ -133,11 +133,11 @@ class SequentialDNAxLSTM(WeightDecayOptimGroupMixin, nn.Module):
 
         self.xlstm_block_stack = xLSTMBlockStack(config=model_config)
         self.token_embedding = SequentialDNAEmbedding(config=embedding_config)
-        # TODO: UPDATE BPE
 
-        self.positional_encoding = BeatPositionalEncoding(embedding_dim=self.token_embedding.embedding_dim,
-                                                          max_len=MAX_GRID_UNITS_PER_SONG if absolute_grid_units else MAX_GRID_UNITS_PER_BAR) \
-            if model_config.positional_encoding else nn.Identity()
+        self.bpe = model_config.positional_encoding
+        if self.bpe:
+            self.positional_encoding = BeatPositionalEncoding(embedding_dim=self.token_embedding.embedding_dim,
+                                                              max_len=MAX_GRID_UNITS_PER_SONG if absolute_grid_units else MAX_GRID_UNITS_PER_BAR)
         self.emb_dropout = nn.Dropout(model_config.dropout) if model_config.add_embedding_dropout else nn.Identity()
 
         self.output_head = nn.Linear(
@@ -159,18 +159,20 @@ class SequentialDNAxLSTM(WeightDecayOptimGroupMixin, nn.Module):
     def forward(self, idx: torch.Tensor) -> torch.Tensor:
         x, beat_pos = idx
         x = self.token_embedding(x)
-        x = self.positional_encoding(x, beat_pos)
+        if self.bpe:
+            x = self.positional_encoding(x, beat_pos)
         x = self.emb_dropout(x)
         x = self.xlstm_block_stack(x)
         logits = self.output_head(x)
         return logits
 
     def step(
-            self, idx: torch.Tensor, state: dict[str, dict[str, tuple[torch.Tensor, ...]]] = None, **kwargs
+            self, idx: tuple[torch.Tensor, torch.Tensor], state: dict[str, dict[str, tuple[torch.Tensor, ...]]] = None, **kwargs
     ) -> tuple[torch.Tensor, dict[str, dict[str, tuple[torch.Tensor, ...]]]]:
         x, beat_pos = idx
         x = self.token_embedding(x)
-        x = self.positional_encoding(x, beat_pos)
+        if self.bpe:
+            x = self.positional_encoding(x, beat_pos)
         x = self.emb_dropout(x)
         x, state = self.xlstm_block_stack.step(x, state=state, **kwargs)
         logits = self.output_head(x)
