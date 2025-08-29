@@ -207,6 +207,7 @@ class MultiTaskDNALearner(BaseDNALearner):
             PlotLossCurvesCallback(
                 save_dir=self.cfg.train.save_dir,
                 model_name=self.cfg.train.model_name,
+                loss_label="Objective (weighted loss)",
                 logger=self.logger
             ),
             PlotMetricsCallback(

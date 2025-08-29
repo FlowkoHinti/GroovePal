@@ -189,6 +189,7 @@ class SequentialDnaLearner(BaseDNALearner):
             PlotLossCurvesCallback(
                 save_dir=self.cfg.train.save_dir,
                 model_name=self.cfg.train.model_name,
+                loss_label="Cross Entropy Loss",
                 logger=self.logger
             ),
             PlotMetricsCallback(

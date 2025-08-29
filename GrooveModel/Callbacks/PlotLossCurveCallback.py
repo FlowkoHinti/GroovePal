@@ -13,6 +13,7 @@ class PlotLossCurvesCallback(Callback):
             self,
             save_dir: Union[str, os.PathLike],
             model_name: str,
+            loss_label: str,
             figsize: Tuple[int, int] = (10, 6),
             train_color: str = "blue",
             val_color: str = "orange",
@@ -28,6 +29,7 @@ class PlotLossCurvesCallback(Callback):
         self.train_color = train_color
         self.val_color = val_color
         self.linewidth = linewidth
+        self.loss_label = loss_label
 
     # ---------- helpers ----------
     def _read_stats(self) -> List[dict]:
@@ -59,7 +61,7 @@ class PlotLossCurvesCallback(Callback):
         plt.plot(epochs, val, label="Val Objective", marker="o",
                  color=self.val_color, linewidth=self.linewidth)
         plt.xlabel("Epoch")
-        plt.ylabel("Objective (weighted loss)")
+        plt.ylabel(self.loss_label)
         plt.title("Objective/Loss Curves")
         plt.xticks(epochs)
         plt.legend()
