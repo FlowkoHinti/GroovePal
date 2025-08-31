@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=seq_bpe_relgu
+#SBATCH --job-name=seq_absgu
 #SBATCH --output=Log/%x_%j.out
 #SBATCH --error=Log/%x_%j.err
 #SBATCH --time=6-00:00
@@ -80,4 +80,4 @@ trap 'echo "[$(date)] SIGTERM: exit."; exit 0' TERM
 
 # ===== RUN =====
 # Use srun so cgroups/accounting apply to the task:
-srun --cpu-bind=cores python Main.py --train experiment_sequential_relgu_bpe_pretrain
+srun --cpu-bind=cores python Main.py --train experiment_sequential_absgu_pretrain

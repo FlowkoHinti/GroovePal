@@ -23,13 +23,13 @@ export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
 export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
 export PYTHONUNBUFFERED=1
 
-# --- Conda first ---
+# --- Conda ---
 set +u
 eval "$(conda shell.bash hook)"
 conda activate /home2/fhinterberger/miniconda/envs/dna_xlstm
 set -u
 
-# --- Discover CUDA rather than forcing it ---
+# --- Discover CUDA ---
 # Prefer conda-provided toolkit if present; otherwise rely on system CUDA.
 CUDA_HOME_CANDIDATES=()
 command -v nvcc >/dev/null 2>&1 && CUDA_HOME_CANDIDATES+=("$(dirname "$(dirname "$(command -v nvcc)")")")
