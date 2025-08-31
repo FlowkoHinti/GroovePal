@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import torch
 from dacite import from_dict, Config as DaciteConfig
 from omegaconf import DictConfig, OmegaConf
@@ -14,18 +16,13 @@ from GrooveModel.Callbacks.LRLoggerCallback import LRLoggerCallback
 from GrooveModel.Callbacks.PlotLossCurveCallback import PlotLossCurvesCallback
 from GrooveModel.Callbacks.PlotMetricsCallback import PlotMetricsCallback
 from GrooveModel.Datasets import DNANextTokenDataset
-from GrooveModel.Embedding.MultiTaskDnaEmbedding import MultiTaskDNAEmbeddingConfig
 from GrooveModel.Embedding.SequentialDnaEmbedding import SequentialDNAEmbeddingConfig
 from GrooveModel.Learner.Learner import BaseDNALearner, sort_params_by_name
 from GrooveModel.Learner.LearnerState import LearnerState
-from GrooveModel.Loss import UncertaintyWeightedMultiTaskLoss
-from GrooveModel.Metrics import MultiTaskDNAMetrics, SequentialDNAMetrics
-from GrooveModel.Models import ModelConfigxLstm, MultiTaskDNAxLSTM, SequentialDNAxLSTM
-from GrooveModel.Tokenizer.MultiTaskDnaTokenizer import MultiTaskDnaTokenizer
+from GrooveModel.Metrics import SequentialDNAMetrics
+from GrooveModel.Models import ModelConfigxLstm, SequentialDNAxLSTM
 from GrooveModel.Tokenizer.SequentialDnaTokenizer import SequentialDnaTokenizer
 from GrooveModel.TrainLoop import run_training_loop
-from GrooveModel.Utils.DNAOffset import normalize_offset_tensor
-from GrooveModel.Utils.DNAVelocity import normalize_velocity_tensor
 from GrooveModel.Utils.Logger import setup_logger
 from GrooveModel.Utils.SpecialTokens import SpecialTokens
 from GrooveModel.xlstm.experiments.lr_scheduler import LinearWarmupCosineAnnealing
@@ -101,7 +98,15 @@ class SequentialDnaLearner(BaseDNALearner):
         self.model = SequentialDNAxLSTM(model_config,
                                         self.embedding_config,
                                         absolute_grid_units=self.cfg.dataset.tokenizer.absolute_grid_units)
-        self.model.reset_parameters()
+        # Load pretrained weights if given
+        if self.cfg.train.get("finetune", None):
+            pretrained_path = Path(
+                self.cfg.train.save_dir) / f"{self.cfg.train.finetune}" / "checkpoints" / f"{self.cfg.train.finetune}_best.pt"
+            self.logger.info(f"Finetuning pretrained model from {pretrained_path}")
+            pretrained = torch.load(pretrained_path, map_location="cpu")
+            self.model.load_state_dict(pretrained["model_state_dict"])
+        else:
+            self.model.reset_parameters()
         self.model.to(self.device)
 
     def _setup_criterion(self):

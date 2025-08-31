@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import torch
 from dacite import from_dict, Config as DaciteConfig
 from omegaconf import DictConfig, OmegaConf
@@ -92,7 +94,15 @@ class MultiTaskDNALearner(BaseDNALearner):
         )
 
         self.model = MultiTaskDNAxLSTM(model_config, self.embedding_config)
-        self.model.reset_parameters()
+        # Load pretrained weights if given
+        if self.cfg.train.get("finetune", None):
+            pretrained_path = Path(
+                self.cfg.train.save_dir) / f"{self.cfg.train.finetune}" / "checkpoints" / f"{self.cfg.train.finetune}_best.pt"
+            self.logger.info(f"Finetuning pretrained model from {pretrained_path}")
+            pretrained = torch.load(pretrained_path, map_location="cpu")
+            self.model.load_state_dict(pretrained["model_state_dict"])
+        else:
+            self.model.reset_parameters()
         self.model.to(self.device)
 
     def _setup_criterion(self):
