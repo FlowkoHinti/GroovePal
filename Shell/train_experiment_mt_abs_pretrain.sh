@@ -80,4 +80,4 @@ trap 'echo "[$(date)] SIGTERM: exit."; exit 0' TERM
 
 # ===== RUN =====
 # Use srun so cgroups/accounting apply to the task:
-srun --cpu-bind=cores python Main.py --train experiment_multitask_absgu_pretrain
+srun --cpu-bind=cores python ../Main.py --train experiment_multitask_absgu_pretrain
