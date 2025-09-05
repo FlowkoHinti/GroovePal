@@ -68,7 +68,7 @@ train:
   use_mixed_precision: true
   monitor: val_loss
   mode: min
-  patience: 3
+  patience: 6
   load_best_on_start: false
   metrics: ['accuracy','top_k_accuracy@3', 'perplexity', 'mse', 'mae']
 
