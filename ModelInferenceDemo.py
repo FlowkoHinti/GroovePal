@@ -47,6 +47,6 @@ def main():
 
     print(f"[Saved] {out_path}")
 
-# TODO UPDATE TO NEW MODEL OUTPUT HEAD AND ADD SEQUENTIAL
+# TODO ADD SEQUENTIAL SAMPLER
 if __name__ == "__main__":
     main()
