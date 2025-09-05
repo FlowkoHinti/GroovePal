@@ -1,3 +1,5 @@
+from typing import Literal, Union, Tuple
+
 import torch
 
 from GrooveModel.Utils.SpecialTokens import SPECIAL_TOKEN_SIZE
@@ -80,3 +82,57 @@ def normalize_velocity_tensor(
     vel_idx = (vel_ids - SPECIAL_TOKEN_SIZE).clamp(min=0, max=EFFECTIVE_VELOCITY_RESOLUTION - 1)
     vel_tensor = vel_idx.to(dtype) / float(max(1, EFFECTIVE_VELOCITY_RESOLUTION - 1))
     return vel_tensor
+
+
+def quantize_velocity(
+        velocity: float,
+        *,
+        resolution: int = VELOCITY_RESOLUTION,  # canonical calc grid (128)
+        effective_resolution: int = EFFECTIVE_VELOCITY_RESOLUTION,  # token grid (e.g., 64)
+        include_padding: bool = True,
+        return_as: Literal["encoded", "index", "float", "both"] = "encoded",
+) -> Union[int, float, Tuple[int, float]]:
+    """
+    Quantize a predicted velocity in [0, 1] to the fixed effective grid.
+
+    - Rounds on the canonical `resolution` grid (round half up), then projects to
+      `effective_resolution` (same procedure as `encode_velocity`).
+    - `return_as` controls the output:
+        - "encoded": encoded token id (respecting SPECIAL_TOKEN_SIZE if include_padding=True)
+        - "index":   integer grid index on the effective grid (no padding)
+        - "float":   decoded float in [0, 1] at the snapped grid point
+        - "both":    (encoded_id, decoded_float)
+
+    Raises:
+        ValueError if inputs are out of range or resolutions are invalid.
+    """
+    # Reuse your existing encode/decode logic to keep behavior consistent
+    encoded_id = encode_velocity(
+        velocity=velocity,
+        resolution=resolution,
+        effective_resolution=effective_resolution,
+        include_padding=include_padding,
+    )
+
+    if return_as == "encoded":
+        return encoded_id
+
+    # Compute the unpadded effective-grid index
+    eff_index = encoded_id - SPECIAL_TOKEN_SIZE if include_padding else encoded_id
+    if return_as == "index":
+        return eff_index
+
+    # Map index back to [0, 1] grid point
+    snapped_float = decode_velocity(
+        encoded_velocity=encoded_id,
+        resolution=resolution,
+        effective_resolution=effective_resolution,
+        include_padding=include_padding,
+    )
+
+    if return_as == "float":
+        return snapped_float
+    elif return_as == "both":
+        return encoded_id, snapped_float
+    else:
+        raise ValueError("return_as must be one of {'encoded', 'index', 'float', 'both'}.")

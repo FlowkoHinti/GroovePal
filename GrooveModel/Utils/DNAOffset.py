@@ -1,3 +1,5 @@
+from typing import Literal, Tuple, Union
+
 import torch
 
 from GrooveModel.Utils.SpecialTokens import SPECIAL_TOKEN_SIZE
@@ -45,10 +47,10 @@ def decode_offset_ticks(norm_offset: int, ticks_per_grid_unit: int = OFFSET_TICK
 
 
 def offset_to_percent_step(
-    offset: int,
-    ticks_per_grid_unit: int = OFFSET_TICKS_RESOLUTION,
-    start_at_zero: bool = False,
-    percent_step: float = DEFAULT_PERCENT_STEP,
+        offset: int,
+        ticks_per_grid_unit: int = OFFSET_TICKS_RESOLUTION,
+        start_at_zero: bool = False,
+        percent_step: float = DEFAULT_PERCENT_STEP,
 ) -> int:
     """
     Map a tick `offset` to a percentage *step id*.
@@ -80,10 +82,10 @@ def offset_to_percent_step(
 
 
 def percent_step_to_offset(
-    step_id: int,
-    ticks_per_grid_unit: int = OFFSET_TICKS_RESOLUTION,
-    start_at_zero: bool = False,
-    percent_step: float = DEFAULT_PERCENT_STEP,
+        step_id: int,
+        ticks_per_grid_unit: int = OFFSET_TICKS_RESOLUTION,
+        start_at_zero: bool = False,
+        percent_step: float = DEFAULT_PERCENT_STEP,
 ) -> int:
     """
     Map a percentage *step id* back to a tick `offset`.
@@ -107,7 +109,6 @@ def percent_step_to_offset(
 
     # and finally to ticks
     return denormalize_offset(v, ticks_per_grid_unit=ticks_per_grid_unit, start_at_zero=start_at_zero)
-
 
 
 def normalize_offset(offset: int, ticks_per_grid_unit: int = OFFSET_TICKS_RESOLUTION,
@@ -147,3 +148,85 @@ def normalize_offset_tensor(off_ids, dtype=torch.float32) -> torch.Tensor:
     off_idx = (off_ids - SPECIAL_TOKEN_SIZE).clamp(min=0, max=OFFSET_TICKS_RESOLUTION - 1)
     off_0_1 = off_idx.to(dtype) / float(max(1, OFFSET_TICKS_RESOLUTION - 1))
     return 2.0 * off_0_1 - 1.0
+
+
+def quantize_offset(
+        value: float,
+        *,
+        # same knobs as your existing API
+        ticks_per_grid_unit: int = OFFSET_TICKS_RESOLUTION,
+        start_at_zero: bool = False,
+        resolution: int = OFFSET_TICKS_RESOLUTION,
+        include_padding: bool = True,
+        # what to return
+        return_as: Literal["encoded", "index", "float", "ticks", "both"] = "encoded",
+) -> Union[int, float, Tuple[int, float]]:
+    """
+    Quantize a predicted continuous offset to the fixed token grid.
+
+    Args:
+        value: Predicted *normalized* offset ([-1,1] if start_at_zero=False, else [0,1]).
+        ticks_per_grid_unit, start_at_zero, resolution, include_padding:
+            Passed through to your existing encode/decode helpers.
+        return_as:
+            - "encoded": encoded token id (with SPECIAL_TOKEN_SIZE if include_padding=True)
+            - "index":   unpadded integer index on the token grid
+            - "float":   snapped normalized float ([-1,1] or [0,1], consistent with start_at_zero)
+            - "ticks":   snapped offset in ticks
+            - "both":    (encoded_id, snapped_normalized_float)
+
+    Returns:
+        Depending on `return_as`.
+
+    Notes:
+        Uses your existing encode/decode functions to guarantee identical quantization behavior.
+    """
+    # clamp the incoming normalized value to legal range
+    if start_at_zero:
+        v = max(0.0, min(1.0, float(value)))
+    else:
+        v = max(-1.0, min(1.0, float(value)))
+
+    # snap by roundtrip: normalized -> ticks -> encoded token
+    ticks = denormalize_offset(v, ticks_per_grid_unit=ticks_per_grid_unit, start_at_zero=start_at_zero)
+
+    encoded_id = encode_offset_ticks(
+        offset=ticks,
+        ticks_per_grid_unit=ticks_per_grid_unit,
+        start_at_zero=start_at_zero,
+        resolution=resolution,
+        include_padding=include_padding,
+    )
+
+    if return_as == "encoded":
+        return encoded_id
+
+    # unpadded grid index
+    eff_index = encoded_id - SPECIAL_TOKEN_SIZE if include_padding else encoded_id
+    if return_as == "index":
+        return eff_index
+
+    # decode back to snapped ticks
+    snapped_ticks = decode_offset_ticks(
+        norm_offset=encoded_id,
+        ticks_per_grid_unit=ticks_per_grid_unit,
+        start_at_zero=start_at_zero,
+        resolution=resolution,
+        include_padding=include_padding,
+    )
+    if return_as == "ticks":
+        return snapped_ticks
+
+    # and to snapped normalized float on [-1,1] (or [0,1] if start_at_zero)
+    snapped_float = normalize_offset(
+        snapped_ticks,
+        ticks_per_grid_unit=ticks_per_grid_unit,
+        start_at_zero=start_at_zero,
+    )
+
+    if return_as == "float":
+        return snapped_float
+    elif return_as == "both":
+        return encoded_id, snapped_float
+    else:
+        raise ValueError("return_as must be one of {'encoded','index','float','ticks','both'}.")

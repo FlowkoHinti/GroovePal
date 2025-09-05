@@ -36,7 +36,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     sampler = MultitaskDNASampler(cfg_path, model_dir, device, use_best=True)
-    result = sampler.sample(dnas[0], temperature=1.0, top_k=None, top_p=0.95, max_tokens=100)
+    result = sampler.sample(dnas[0], temperature=1.0, top_k=None, top_p=0.8, max_tokens=100)
 
 
 

@@ -1,315 +1,354 @@
-import logging
-from os import PathLike
+import math
 from pathlib import Path
-from typing import Union, Optional, Dict, Any, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union, Literal
 
 import torch
+from torch import nn
 from dacite import from_dict, Config as DaciteConfig
 from omegaconf import DictConfig, OmegaConf
-from torch import nn
 
-from Configs import BASE_PATH, MAX_SEQUENCE_LENGTH
+from Configs import MAX_SEQUENCE_LENGTH
+# --- these come from your codebase ---
 from GrooveModel.Embedding.MultiTaskDnaEmbedding import MultiTaskDNAEmbeddingConfig
 from GrooveModel.Models import ModelConfigxLstm, MultiTaskDNAxLSTM
-from GrooveModel.Sampling.Sampler import DNATokenSampler
+from GrooveModel.Sampling.Sampler import DNATokenSampler, _load_cfg, _select_checkpoint_path, _categorical_sample
 from GrooveModel.Tokenizer.MultiTaskDnaTokenizer import MultiTaskDnaTokenizer
-
+from GrooveModel.Utils.BeatUnit import decode_beat_unit
+from GrooveModel.Utils.DNAOffset import quantize_offset, decode_offset_ticks
+from GrooveModel.Utils.DNAValue import decode_instrument
+from GrooveModel.Utils.DNAVelocity import encode_velocity, normalize_velocity_tensor, quantize_velocity, decode_velocity
+from GrooveModel.Utils.TimeSignatures import decode_time_signature
 
 # -----------------------------
-# Utilities
+# Helper: default column order
 # -----------------------------
-def _compute_embedding_dim(embedding_cfg: DictConfig) -> int:
-    # Matches Main.py's compute_embedding_dim
-    return sum([
-        embedding_cfg.instruments.embedding_dim,
-        embedding_cfg.velocities.embedding_dim,
-        embedding_cfg.offsets.embedding_dim,
-        embedding_cfg.time_signature.embedding_dim,
-        embedding_cfg.grid_factor.embedding_dim,
-        embedding_cfg.bpm.embedding_dim,
-        embedding_cfg.beat_units.embedding_dim,
-    ])
+TOKEN_COLS = {
+    "instrument": 0,
+    "velocity": 1,
+    "beat_unit": 2,
+    "offset": 3,
+    "grid_factor": 4,
+    "bpm": 5,
+    "time_signature": 6,
+}
 
-
-def _inject_paths(cfg: DictConfig) -> DictConfig:
-    # Matches Main.py's path resolution
-    if isinstance(cfg.dataset.dna_path, str):
-        cfg.dataset.dna_path = (BASE_PATH / cfg.dataset.dna_path).resolve()
-    if isinstance(cfg.train.save_dir, str):
-        cfg.train.save_dir = (BASE_PATH / cfg.train.save_dir).resolve()
-    return cfg
-
-
-def _prepare_config(cfg: DictConfig) -> DictConfig:
-    # Align with Main.py behavior for MultiTask models
-    cfg.model.context_length = MAX_SEQUENCE_LENGTH
-    cfg.model.embedding_dim = _compute_embedding_dim(cfg.embedding)
-    return _inject_paths(cfg)
-
-
-def _load_cfg(cfg_or_path: Union[str, Path, DictConfig]) -> DictConfig:
-    if isinstance(cfg_or_path, (str, Path)):
-        cfg = OmegaConf.load(str(cfg_or_path))
-    elif isinstance(cfg_or_path, DictConfig):
-        cfg = cfg_or_path
-    else:
-        raise TypeError("cfg_or_path must be a path to YAML or an OmegaConf DictConfig.")
-    return _prepare_config(cfg)
-
-
-def _select_checkpoint_path(cfg: DictConfig, checkpoint: Optional[Union[str, Path]], use_best: bool) -> Path:
-    if checkpoint is not None:
-        p = Path(checkpoint)
-        if p.is_file():
-            return p
-        elif p.is_dir():
-            # Expect saved under <dir>/<model_name>/checkpoints/{best|latest}.pt
-            base = p / cfg.train.model_name / "checkpoints"
-        else:
-            # treat as file path regardless
-            return p
-    else:
-        base = Path(cfg.train.save_dir) / cfg.train.model_name / "checkpoints"
-
-    ckpt = base / f"{cfg.train.model_name}_{'best' if use_best else 'latest'}.pt"
-    if not ckpt.exists():
-        # Fallback to the other one if preferred is missing
-        alt = base / f"{cfg.train.model_name}_{'latest' if use_best else 'best'}.pt"
-        if alt.exists():
-            return alt
-    return ckpt
-
-
-def _apply_temperature(logits: torch.Tensor, temperature: float) -> torch.Tensor:
-    if temperature <= 0:
-        raise ValueError("temperature must be > 0")
-    return logits / temperature
-
-
-def _top_k_filter(logits: torch.Tensor, k: Optional[int]) -> torch.Tensor:
-    if k is None or k <= 0 or k >= logits.size(-1):
-        return logits
-    values, indices = torch.topk(logits, k, dim=-1)
-    mask = torch.full_like(logits, float('-inf'))
-    mask.scatter_(-1, indices, values)
-    return mask
-
-
-def _top_p_filter(logits: torch.Tensor, top_p: Optional[float]) -> torch.Tensor:
-    if top_p is None or top_p <= 0 or top_p >= 1:
-        return logits
-    # Sort by probability
-    probs = torch.softmax(logits, dim=-1)
-    sorted_probs, sorted_indices = torch.sort(probs, descending=True, dim=-1)
-    cumulative = torch.cumsum(sorted_probs, dim=-1)
-
-    # Mask tokens outside nucleus
-    cutoff = cumulative > top_p
-    # Ensure at least one token remains
-    cutoff[..., 0] = False
-
-    sorted_probs = torch.where(cutoff, torch.zeros_like(sorted_probs), sorted_probs)
-    # Map back to original index order
-    new_logits = torch.full_like(logits, float('-inf'))
-    new_logits.scatter_(-1, sorted_indices, torch.log(sorted_probs + 1e-20))
-    return new_logits
-
-
-def _categorical_sample(
-    logits: torch.Tensor, temperature: float, top_k: Optional[int], top_p: Optional[float]
-) -> Tuple[int, torch.Tensor]:
-    """Return sampled index and probability distribution."""
-    logits = _apply_temperature(logits, temperature)
-    logits = _top_k_filter(logits, top_k)
-    logits = _top_p_filter(logits, top_p)
-    probs = torch.softmax(logits, dim=-1)
-    ix = torch.multinomial(probs, num_samples=1).item()
-    return ix, probs
 
 # -----------------------------
 # Multitask DNA Sampler
 # -----------------------------
+
 class MultitaskDNASampler(DNATokenSampler):
     """
-    - Builds MultiTaskDNAxLSTM from a config (incl. absolute grid units via tokenizer cfg).
-    - Restores weights from checkpoint (best or latest).
-    - Tokenizes JSON DNA context, embeds -> forwards it.
-    - Samples *the next token* heads with temperature/top-k/top-p.
-
-    NOTE: We intentionally **do not** reconstruct the original DNA event.
-    You said you'll take over that step using the sampled heads.
+    - Builds MultiTaskDNAxLSTM from a config (incl. tokenizer flags like absolute grid units).
+    - Restores weights from checkpoint.
+    - Tokenizes JSON context(s), runs autoregressive sampling with teacher forcing.
+    - Returns DNA-shaped payload(s) for each input context and requested number of variations.
     """
 
     def __init__(
-        self,
-        cfg_or_path: Union[str, Path, DictConfig],
-        checkpoint: Optional[Union[str, Path]] = None,
-        device: Optional[torch.device] = None,
-        use_best: bool = True,
+            self,
+            cfg_or_path: Union[str, Path, DictConfig],
+            checkpoint: Optional[Union[str, Path]] = None,
+            device: Optional[torch.device] = None,
+            use_best: bool = True,
     ):
-        # Config
+        # Config + device
         self.cfg = _load_cfg(cfg_or_path)
-
-        # Device
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        # Build embedding + model exactly like in training
+        # Build model
         self.embedding_config = from_dict(
             MultiTaskDNAEmbeddingConfig,
             OmegaConf.to_container(self.cfg.embedding, resolve=True),
-            config=DaciteConfig(strict=True)
+            config=DaciteConfig(strict=True),
         )
         model_config = from_dict(
             ModelConfigxLstm,
             OmegaConf.to_container(self.cfg.model, resolve=True),
-            config=DaciteConfig(strict=True)
+            config=DaciteConfig(strict=True),
         )
-        self.model: nn.Module = MultiTaskDNAxLSTM(model_config, self.embedding_config)
-        self.model.to(self.device)
-        self.model.eval()
+        self.model: MultiTaskDNAxLSTM = (MultiTaskDNAxLSTM(model_config, self.embedding_config)
+                                         .to(self.device)
+                                         .eval())
 
-        # Restore weights
+        # Checkpoint
         ckpt_path = _select_checkpoint_path(self.cfg, checkpoint, use_best)
         state = torch.load(str(ckpt_path), map_location="cpu")
         self.model.load_state_dict(state["model_state_dict"], strict=True)
 
-        # Set up tokenizer (critical for absolute grid units, etc.)
-        self.tok_kwargs = dict(getattr(self.cfg.dataset, "tokenizer", {}))
-        self.absolute_grid_units = self.tok_kwargs["absolute_grid_units"]
+        # Tokenizer (propagate tokenizer kwargs so flags like absolute_grid_units are honored)
+        self.tok_kwargs: Dict[str, Any] = dict(getattr(self.cfg.dataset, "tokenizer", {}))
+        self.absolute_grid_units: bool = bool(self.tok_kwargs.get("absolute_grid_units", False))
         self.tokenizer = MultiTaskDnaTokenizer()
+
+
+    def _quantize_regression_values(self,
+                                   reg_value: torch.Tensor,
+                                   column: Literal["velocity","offset"],
+                                   return_encoding: bool=False,
+                                   ticks_per_gu: Optional[int] = None
+                                   ) -> Union[int, float]:
+
+        match column:
+            case "velocity":
+                step_id, step_val = quantize_velocity(reg_value.item(), return_as="both")
+                if return_encoding:
+                    return step_id
+                else:
+                    return step_val
+            case "offset":
+                encoded_id, step_val = quantize_offset(reg_value.item(),
+                                                       return_as="both",
+                                                       ticks_per_grid_unit=ticks_per_gu,
+                                                       start_at_zero=True)
+                if return_encoding:
+                    return encoded_id
+                else:
+                    return step_val
+
+    @torch.no_grad()
+    def generate_autoregressive(self,
+                          context_tokens: torch.Tensor,
+                          beat_units: torch.Tensor,
+                          dna_meta: dict[str, Any],
+                          temperature: float = 1.0,
+                          top_k: Optional[int] = None,
+                          top_p: Optional[float] = None,
+                          max_tokens: int = MAX_SEQUENCE_LENGTH // 2,
+                          ):
+
+        out_steps = torch.zeros([context_tokens.size(1) + max_tokens, context_tokens.size(2)], dtype=torch.long).to(self.device)
+
+        state: dict[str, dict[str, tuple[torch.Tensor, ...]]] = None
+        for t in range(context_tokens.size(1) + max_tokens):
+            if t < context_tokens.size(1):
+                context_tokens_t = context_tokens[:, t:t + 1, :]  # [1,1,F]
+                beat_units_t = beat_units[:, t:t + 1]
+
+                class_step, reg_step, state = self.model.step((context_tokens_t, beat_units_t), state=state)
+            else:
+                context_tokens_t = out_steps[t-1].unsqueeze(0).unsqueeze(1)  # [1,1,F]
+                beat_units_t = torch.zeros((1,1)) # Placeholder as it is not used
+
+                class_step, reg_step, state = self.model.step((context_tokens_t, beat_units_t))
+
+            for col, i in TOKEN_COLS.items():
+                if col in ('instrument', 'grid_factor', 'bpm', 'time_signature', 'beat_unit'):
+                    if(col == 'beat_unit'):
+                        pass
+                    out_steps[t][i], probs = _categorical_sample(class_step[col], temperature, top_k, top_p)
+                else:
+                    out_steps[t][i] = self._quantize_regression_values(reg_step[col], column=col, return_encoding=True, ticks_per_gu=dna_meta["TicksPerGridUnit"])
+
+        return out_steps
+
+
+    def generate_dna_meta_base(self, dna_context: dict, variation: int) -> Dict[str, Any]:
+        # TODO: check for invalid values
+        dna_meta = {
+            "DNA_ID": f"pred_{dna_context.get('DNA_ID', f'no_id')}_variation_{variation}",
+            "DNASet": dna_context.get("DNASet", "predictions"),
+            "DNAType": dna_context.get("DNAType", None),
+            "AuthorData": dna_context.get("AuthorData", None),
+            "StyleTags": dna_context.get("StyleTags", None),
+            "OriginalMidiFileReference": dna_context.get("OriginalMidiFileReference", None),
+            "AudioFileReference": dna_context.get("AudioFileReference", None),
+            "IsTimeBased": dna_context.get("IsTimeBased", False),
+            "Bpm": dna_context.get("Bpm", 120),
+            "BpmRangeStart": dna_context.get("BpmRangeStart", None),
+            "BpmRangeEnd": dna_context.get("BpmRangeEnd", None),
+            "GridResolution": dna_context.get("GridResolution", None),
+            "UnitLengthMs": dna_context.get("UnitLengthMs", None),
+            "BasicKey": dna_context.get("BasicKey", None),
+            "BasicScale": dna_context.get("BasicScale", None),
+            "Numerator": dna_context.get("Numerator", 4),
+            "Denominator": dna_context.get("Denominator", 4),
+            "GridFactor": dna_context.get("GridFactor", 4),
+            "IsTernary": dna_context.get("IsTernary", dna_context["GridFactor"] % 3 == 0),
+            "TicksPerQuarterNote": dna_context.get("TicksPerQuarterNote", 480),
+            "TicksPerGridUnit": dna_context.get("TicksPerGridUnit", 120),
+            "Description": dna_context.get("Description", None),
+            "FillStartTicks": dna_context.get("FillStartTicks", None),
+        }
+        return dna_meta
 
     @torch.no_grad()
     def sample(
-        self,
-        dna_context: dict,
-        temperature: float = 1.0,
-        top_k: Optional[int] = None,
-        top_p: Optional[float] = None,
-        max_tokens: Optional[int] = None,
-        **kwargs: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """
-        Produce ONE step of next-token predictions from the current context.
-        If you pass max_tokens > 1 we will repeat this forward pass without
-        feeding back sampled tokens (no teacher-forcing round-trip here) and
-        return the *last* step.
-        """
-        steps = int(max_tokens or 1)
+            self,
+            dna_context: dict,
+            temperature: float = 1.0,
+            top_k: Optional[int] = None,
+            top_p: Optional[float] = None,
+            max_tokens: Optional[int] = None,
+            max_bars: Optional[int] = 4,
+            num_variations: int = 1,
+    ) -> List[Dict[str, Any]]:
 
-        # --- Tokenize context ---
-        # tokens: (T, 7) LongTensor; beat_positions: (T,) LongTensor (or similar)
-        tokens, beat_positions = self.tokenizer.tokenize(dna_context, **self.tok_kwargs)
-
-        # Limit to model context
+        tokens, beat_positions = self.tokenizer.tokenize(dna_context, **self.tok_kwargs)  # (T,7), (T,)
         T = tokens.size(0)
         ctx_len = min(T, self.cfg.model.context_length)
-        tokens_ctx = tokens[-ctx_len:].unsqueeze(0).to(self.device)           # (1, ctx, 7)
-        beat_ctx = beat_positions[-ctx_len:].unsqueeze(0).to(self.device)     # (1, ctx)
 
-        out_payload: Dict[str, Any] = {}
+        base_tokens_ctx = tokens[-ctx_len:].unsqueeze(0).to(self.device)  # (1, C, 7)
+        base_beat_ctx = beat_positions[-ctx_len:].unsqueeze(0).to(self.device)  # (1, C)
 
-        for _ in range(steps):
-            class_logits, reg_outputs = self.model((tokens_ctx, beat_ctx))  # dicts of (B, T, C) / (B, T, 1)
+        variations = []
+        for variation in range(num_variations):
 
-            # Take last time step
-            last_ix = -1
-            sampled_ids: Dict[str, int] = {}
-            probs_out: Dict[str, torch.Tensor] = {}
+            # Meta defaults
+            dna = self.generate_dna_meta_base(dna_context, variation)
 
-            for head_name in ("instrument", "beat_unit", "grid_factor", "bpm", "time_signature"):
-                head_logit = class_logits[head_name][0, last_ix, :]  # (C,)
-                idx, probs = _categorical_sample(head_logit, temperature, top_k, top_p)
-                sampled_ids[head_name] = int(idx)
-                probs_out[head_name] = probs.detach().cpu()
+            tokens = self.generate_autoregressive(
+                base_tokens_ctx,
+                base_beat_ctx,
+                dna,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+                max_tokens=max_tokens)
 
-            # Regression heads: return normalized scalars as-is.
-            vel = reg_outputs["velocity"][0, last_ix, 0].item()  # expected in [0,1]
-            off = reg_outputs["offset"][0, last_ix, 0].item()    # expected in [-1,1]
+            # === Build DNAUnits from pred_tokens ===
 
-            out_payload = {
-                "class_ids": sampled_ids,
-                "regression": {
-                    "velocity_norm": float(vel),
-                    "offset_norm": float(off),
-                },
-                "probs": probs_out,
-            }
-
-            # TODO:
-
-            # Pull meta from the original song JSON (with safe defaults if missing)
-            dna_id = dna_context.get("DNA_ID", f"...")
-            bpm = dna_context.get("Bpm", None)
-            numerator = dna_context.get("Numerator", None)
-            denominator = dna_context.get("Denominator", None)
-            grid_factor = dna_context.get("GridFactor", None)
-            ticks_per_qn = dna_context.get("TicksPerQuarterNote", None)
-            ticks_per_gu = dna_context.get("TicksPerGridUnit", None)
-
-            # --- Find all measures (for relative gridunits) ---
-
-            bar_indexes = []
-            prev_were_one = False
-            for i, token in enumerate(pred_tokens):
-                if token['BeatUnit'] == 1 and not prev_were_one:
-                    bar_indexes.append(i)
-                    prev_were_one = True
-                elif prev_were_one and token['BeatUnit'] != 1:
-                    prev_were_one = False
-
-            bar_count = len(bar_indexes)
-
-            # --- Extract DNA units per Bar ---
-
-            bars = []
-            for i, bar_index in enumerate(bar_indexes):
-                if i < bar_count - 1:
-                    bars.append(pred_tokens[bar_index:bar_indexes[i + 1]])
+            units_per_bar = dna["Numerator"] * dna["GridFactor"]
 
             dna_units = []
+            if self.absolute_grid_units:
+                dna_units, bar_count = self._build_dna_units_absolute(
+                    tokens, units_per_bar, max_bars
+                )
+            else:
+                dna_units, bar_count = self._build_dna_units_relative(
+                    tokens, units_per_bar, dna["TicksPerGridUnit"], max_bars
+                )
 
-            for bar in bars:
-                bar_dna = [{'Value': 0, 'OffsetTicksPerValuePart': {}, 'VelocityPerValuePart': {}, 'IsEmpty': True}
-                           for _ in
-                           range(numerator * grid_factor)]
-                for token in bar:
+            dna["DNAUnits"] = dna_units
+            dna["NumberOfBars"] = bar_count
 
-                    beat_unit = decode_beat_unit(token['BeatUnit'])
-                    value = decode_instrument(token['Instrument'])
-                    if value != 0:
-                        velocity = decode_velocity(token['Velocity'])
-                        offset = decode_offset_ticks(token['BeatUnitOffset'], ticks_per_grid_unit=ticks_per_gu)
+            variations.append(dna)
 
-                        dna_unit = bar_dna[beat_unit]
-                        dna_unit['Value'] += value
-                        dna_unit['OffsetTicksPerValuePart'][str(value)] = offset
-                        dna_unit['VelocityPerValuePart'][str(value)] = velocity
-                        dna_unit['IsEmpty'] = False
+        return variations
 
-                dna_units.extend(bar_dna)
 
-            # --- Run predictions and build requested output structure ---
-            """
-            output_payload = []
-            for i, song in enumerate(all_songs):
-                pred_tokens = predict_tokens_for_song(model, song, tokenizer_kwargs, device)
+    # -----------------------------
+    # DNA construction helpers
+    # -----------------------------
+    @staticmethod
+    def _init_empty_unit() -> Dict[str, Any]:
+        return {
+            "Value": 0,  # leave for caller to compute via compose_value_fn if desired
+            "OffsetTicksPerValuePart": {},  # you can later quantize offsets and fill this
+            "VelocityPerValuePart": {},  # you can later quantize velocities and fill this
+            "IsEmpty": True,
 
-                
+            'AvgOffsetTicks': 0.0,
+            'AvgVelocity': 0.0,
 
-                
+            'ExcludeValue': None,
+            'Wildcard': None,
+            'TransposeInstruction': None,
+            'ContinuingLastUnit': False
+        }
 
-                output_payload.append({
-                    "DNA_ID": f"{dna_id}_pred",
-                    "DNASet": "demo",
-                    "AuthorData": cfg.train.model_name,
-                    "Bpm": bpm,
-                    "Numerator": numerator,
-                    "Denominator": denominator,
-                    "GridFactor": grid_factor,
-                    "TicksPerQuarterNote": ticks_per_qn,
-                    "TicksPerGridUnit": ticks_per_gu,
-                    "NumberOfBars": bar_count,
-                    "DNAUnits": dna_units,
-                })
+    def _build_dna_units_absolute(
+            self,
+            pred_tokens: torch.Tensor,
+            units_per_bar: int,
+            max_bars: Optional[int] = None
+    ) -> Tuple[List[Dict[str, Any]], int]:
         """
-        return out_payload
+        For absolute grid-unit encoding, BeatUnit is the absolute index. We place
+        token data directly at that position.
+        """
+
+        # Filter invalid tokens
+        col = TOKEN_COLS["beat_unit"]
+        diffs = torch.diff(pred_tokens[:, col], prepend=pred_tokens[:1, col])  # differences from prev
+        mask = torch.abs(diffs) < 4 # Jumps more than x beat units
+        pred_tokens = pred_tokens[mask]
+
+        # Determine size
+        max_pos = torch.max(pred_tokens[TOKEN_COLS["beat_unit"]])
+        bar_count = math.ceil(max_pos / units_per_bar)
+
+        dna_units: List[Dict[str, Any]] = [self._init_empty_unit() for _ in range(max_pos)]
+
+        # TODO
+
+        return dna_units, bar_count
+
+    def _build_dna_units_relative(
+            self,
+            pred_tokens: torch.Tensor,
+            units_per_bar: int,
+            ticks_per_grid_unit: int,
+            max_bars: Optional[int] = None
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        For relative grid-unit encoding, we detect bar starts (BeatUnit==1),
+        slice bars, and place tokens within each bar.
+        """
+
+        # Filter invalid tokens
+        mask = pred_tokens[:, TOKEN_COLS["beat_unit"]] < units_per_bar
+        pred_tokens = pred_tokens[mask]
+
+        # Clean output
+        # ...
+
+        # Find indices that start bars
+        bar_starts: List[int] = []
+        prev_were_one = False
+        for t in range(pred_tokens.size(0)):
+            if int(pred_tokens[t][TOKEN_COLS["beat_unit"]]) == 1 and not prev_were_one:
+                bar_starts.append(t)
+                prev_were_one = True
+            elif prev_were_one and int(pred_tokens[t][TOKEN_COLS["beat_unit"]]) != 1:
+                prev_were_one = False
+
+        # Slice into bars
+        bars: List[torch.Tensor] = []
+        for i, s in enumerate(bar_starts):
+            e = bar_starts[i + 1] if i + 1 < len(bar_starts) else len(pred_tokens)
+            if e > s:
+                bars.append(pred_tokens[s:e])
+
+        bar_count = len(bars)
+        dna_units: List[Dict[str, Any]] = []
+
+        # Cut trailing bars
+        if max_bars:
+            bars = bars[:max_bars]
+
+        for bar in bars:
+            bar_dna = [self._init_empty_unit() for _ in range(units_per_bar)]
+            for t in bar:
+                instrument = t[TOKEN_COLS["instrument"]].item()
+                instrument = decode_instrument(instrument)
+
+                beat_unit = t[TOKEN_COLS["beat_unit"]].item()
+                beat_unit = decode_beat_unit(beat_unit)
+
+                offset = t[TOKEN_COLS["offset"]].item()
+                offset = decode_offset_ticks(offset, ticks_per_grid_unit)
+
+                velocity = t[TOKEN_COLS["velocity"]].item()
+                velocity = decode_velocity(velocity)
+
+                unit = bar_dna[beat_unit]
+
+                unit["Value"] += instrument
+                key = str(instrument)
+                unit["OffsetTicksPerValuePart"][key] = offset
+                unit["AvgOffsetTicks"] += offset
+                unit["VelocityPerValuePart"][key] = velocity
+                unit["AvgVelocity"] += velocity
+                unit["IsEmpty"] = False
+
+            dna_units.extend(bar_dna)
+
+        # calculate averages
+        for unit in dna_units:
+            count = len(unit["VelocityPerValuePart"])
+            unit["AvgOffsetTicks"] /= max(count, 1)
+            unit["AvgVelocity"] /= max(count, 1)
+
+        return dna_units, bar_count

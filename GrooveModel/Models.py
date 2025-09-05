@@ -76,7 +76,10 @@ class MultiTaskDNAxLSTM(WeightDecayOptimGroupMixin, nn.Module):
         for output_head in self.regression_heads.keys():
             small_init_init_(self.regression_heads[output_head][0].weight, dim=self.token_embedding.embedding_dim)
 
-    def forward(self, idx: torch.Tensor) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
+    def forward(
+            self,
+                idx: tuple[torch.Tensor, torch.Tensor]
+    ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
         x, beat_pos = idx
         x = self.token_embedding(x)
         x = self.emb_dropout(x)
@@ -88,7 +91,7 @@ class MultiTaskDNAxLSTM(WeightDecayOptimGroupMixin, nn.Module):
 
     def step(
             self,
-            idx: torch.Tensor,
+            idx: tuple[torch.Tensor, torch.Tensor],
             state: dict[str, dict[str, tuple[torch.Tensor, ...]]] = None,
             **kwargs
     ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor], dict[str, dict[str, tuple[torch.Tensor, ...]]]]:
