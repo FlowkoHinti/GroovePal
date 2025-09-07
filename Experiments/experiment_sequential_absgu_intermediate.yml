@@ -45,18 +45,17 @@ model:
 train:
   model_name: intermediate_sequential_absoluteGridUnits
   save_dir: Models
-  finetune: sequential_absoluteGridUnits
   device: cuda
   batch_size: 32
   epochs: 20
 
-  initial_lr: 0.0005
+  initial_lr: 0.0001
   weight_decay: 0.01
   gradient_clip_norm: 1.0
   use_mixed_precision: true
   monitor: val_loss
   mode: min
-  patience: 6
+  patience: 4
   load_best_on_start: false
   metrics: ['accuracy','top_k_accuracy@3', 'top_k_accuracy@5', 'perplexity']
 
@@ -67,4 +66,11 @@ train:
 
     type: linear_warmup_cosine_annealing
     lr_warmup_steps_ratio: 0.02
-    lr_decay_factor: 0.01
+    lr_decay_factor: 0.001
+
+  finetune:
+    enabled: true
+    init_from: sequential_absoluteGridUnits
+    start_epoch: 3                       # epoch index to start gradual unfreeze
+    unfreeze_per_epoch: 1                # how many layer-groups to unfreeze each epoch
+    strict_loading: false                # set true if you expect exact key matching

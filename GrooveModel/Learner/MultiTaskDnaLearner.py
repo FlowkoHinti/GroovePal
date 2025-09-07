@@ -10,6 +10,7 @@ from GrooveModel.Callbacks.Callback import CallbackManager
 from GrooveModel.Callbacks.CheckpointCallback import CheckpointCallback
 from GrooveModel.Callbacks.EarlyStoppingCallback import EarlyStoppingCallback
 from GrooveModel.Callbacks.EpochSummaryCallback import EpochSummaryCallback
+from GrooveModel.Callbacks.FinetuningCallback import FineTuneCallback
 from GrooveModel.Callbacks.GradientClippingCallback import GradientClippingCallback
 from GrooveModel.Callbacks.LRLoggerCallback import LRLoggerCallback
 from GrooveModel.Callbacks.PlotLossCurveCallback import PlotLossCurvesCallback
@@ -94,16 +95,12 @@ class MultiTaskDNALearner(BaseDNALearner):
         )
 
         self.model = MultiTaskDNAxLSTM(model_config, self.embedding_config)
-        # Load pretrained weights if given
-        if self.cfg.train.get("finetune", None):
-            pretrained_path = Path(
-                self.cfg.train.save_dir) / f"{self.cfg.train.finetune}" / "checkpoints" / f"{self.cfg.train.finetune}_best.pt"
-            self.logger.info(f"Finetuning pretrained model from {pretrained_path}")
-            pretrained = torch.load(pretrained_path, map_location="cpu")
-            self.model.load_state_dict(pretrained["model_state_dict"])
-        else:
-            self.model.reset_parameters()
+        self.model.reset_parameters()
         self.model.to(self.device)
+
+        if self.cfg.train.finetune.get("enabled", False):
+            self.pretrained_path = Path(
+                self.cfg.train.save_dir) / f"{self.cfg.train.finetune.init_from}" / "checkpoints" / f"{self.cfg.train.finetune.init_from}_best.pt"
 
     def _setup_criterion(self):
         self.criterion = UncertaintyWeightedMultiTaskLoss(
@@ -245,6 +242,17 @@ class MultiTaskDNALearner(BaseDNALearner):
                 logger=self.logger
             )
         ]
+
+        if self.cfg.train.finetune.get("enabled", False):
+            self.callbacks.append(FineTuneCallback(
+                enabled=True,
+                init_from=self.pretrained_path,
+                start_epoch=self.cfg.train.finetune.get("start_epoch", 1),
+                unfreeze_per_epoch=self.cfg.train.finetune.get("unfreeze_per_epoch", 1),
+                strict_loading=self.cfg.train.finetune.get("strict_loading", False),
+                logger=self.logger,
+            ))
+
         self.callback_manager = CallbackManager(self.callbacks)
 
     def compute_loss(self, outputs, targets: torch.Tensor) -> torch.Tensor:

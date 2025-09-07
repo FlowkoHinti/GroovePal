@@ -69,7 +69,14 @@ def main():
     else:
         learner = SequentialDnaLearner(cfg)
 
-    # TODO: SAVE A COPY OF PRETRAINED/INTERMEDIATE/MODELS -> TO COMPARE
+    # TODO: Models overfitting in Finetuning:
+    # - reduce initial LR + harsher decay + more warmup steps
+
+    # TODO: Sequential Model Sampler
+
+    # TODO: Finetuning Configs
+
+    # TODO: Reduce model complexity -> eg. 7 blocks
 
     # Start training
     if args.train:
