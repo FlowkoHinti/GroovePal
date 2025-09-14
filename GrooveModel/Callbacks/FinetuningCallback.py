@@ -1,5 +1,4 @@
 # https://ijisrt.com/assets/upload/files/IJISRT20NOV654.pdf -> quadrant 3
-from os import PathLike
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -13,6 +12,7 @@ try:
 except Exception:
     _XLSTM_CLS = None
 
+
 class FineTuneCallback(Callback):
     """
     1) Optionally loads weights from a previous model checkpoint/state_dict.
@@ -22,13 +22,13 @@ class FineTuneCallback(Callback):
     """
 
     def __init__(
-        self,
-        enabled: bool = False,
-        init_from: Optional[str] = None,
-        start_epoch: int = 1,
-        unfreeze_per_epoch: int = 1,
-        strict_loading: bool = False,
-        logger=None,
+            self,
+            enabled: bool = False,
+            init_from: Optional[str] = None,
+            start_epoch: int = 1,
+            unfreeze_per_epoch: int = 1,
+            strict_loading: bool = False,
+            logger=None,
     ):
         super().__init__(logger=logger)
         self.enabled = enabled
@@ -110,8 +110,14 @@ class FineTuneCallback(Callback):
     def _looks_like_head(name: str, module_path: str) -> bool:
         name_l = name.lower()
         path_l = module_path.lower()
-        return any(k in name_l for k in ("head", "heads", "classifier", "classification", "regression")) or \
-               any(k in path_l for k in ("head", "heads", "classifier", "classification", "regression"))
+        HEAD_TOKENS = (
+            "head", "heads",  # generic
+            "classifier", "classification",
+            "regression",
+            "output_head",  # sequential model
+        )
+
+        return any(k in name_l for k in HEAD_TOKENS) or any(k in path_l for k in HEAD_TOKENS)
 
     @classmethod
     def _is_xlstm_stack(cls, mod: nn.Module, name: str) -> bool:
@@ -124,7 +130,7 @@ class FineTuneCallback(Callback):
         return False
 
     def _group_parameters(
-        self, model: nn.Module
+            self, model: nn.Module
     ) -> Tuple[List[Tuple[str, nn.Parameter]], List[List[Tuple[str, nn.Parameter]]]]:
         head_params: List[Tuple[str, nn.Parameter]] = []
         body_groups: List[List[Tuple[str, nn.Parameter]]] = []
