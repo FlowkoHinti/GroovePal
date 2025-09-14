@@ -25,14 +25,23 @@ def unique_target(path: Path) -> Path:
 
 def run_on_folder(exe_path: Path, folder: Path) -> bool:
     """
-    Run the exe on a single folder. Returns True on success.
+    Run the exe on a single folder with the --midi2dna flag. Returns True on success.
     """
     try:
-        result = subprocess.run([str(exe_path), str(folder)], check=True, capture_output=True, text=True)
+        result = subprocess.run(
+            [str(exe_path), "--midi2dna", str(folder)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
         if result.returncode != 0:
-            raise subprocess.CalledProcessError(-1, result.args, output=result.stdout, stderr=result.stderr)
+            raise subprocess.CalledProcessError(
+                -1, result.args, output=result.stdout, stderr=result.stderr
+            )
         if "Exception" in result.stdout or "Exception" in result.stderr:
-            raise subprocess.CalledProcessError(-1, result.args, output=result.stdout, stderr=result.stderr)
+            raise subprocess.CalledProcessError(
+                -1, result.args, output=result.stdout, stderr=result.stderr
+            )
         return True
     except subprocess.CalledProcessError as e:
         print(f"[ERROR] Execution failed for {folder} with error: {e}")
@@ -75,13 +84,17 @@ def cleanup_mid_txt(folder: Path) -> int:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run DNAConsole.exe on subfolders, collect JSONs, and clean up.")
+    parser = argparse.ArgumentParser(
+        description="Run DNAConsole.exe on subfolders, collect JSONs, and clean up."
+    )
     parser.add_argument("path", help="Path containing chunk subfolders (or files)")
     args = parser.parse_args()
 
     root = Path(args.path).resolve()
 
-    exe_path = (Path("DNA_App") / "DNAConsole" / "bin" / "Debug" / "net8.0" / "DNAConsole.exe").resolve()
+    exe_path = (
+        Path("DNA_App") / "DNAConsole" / "bin" / "Debug" / "net8.0" / "DNAConsole.exe"
+    ).resolve()
     if not exe_path.is_file():
         print(f"Executable not found at: {exe_path}")
         sys.exit(1)
@@ -93,10 +106,11 @@ def main():
         # No subdirs -> process root like before
         print(f"No subfolders found under {root}. Running on the root folder.")
         if run_on_folder(exe_path, root):
-            # Move JSONs produced in root to root (no-op), then clean up files
             moved = move_jsons_up(root, root)
             deleted = cleanup_mid_txt(root)
-            print(f"Root processing complete. JSONs moved: {moved}, files deleted: {deleted}")
+            print(
+                f"Root processing complete. JSONs moved: {moved}, files deleted: {deleted}"
+            )
         else:
             sys.exit(1)
         return
@@ -109,21 +123,18 @@ def main():
             print(f"Skipping cleanup for {sub} due to error.")
             continue
 
-        # Move JSONs up to the root folder
         moved_jsons = move_jsons_up(sub, root)
-
-        # Clean up mid/txt ONLY if run succeeded
         deleted_files = cleanup_mid_txt(sub)
 
-        # Remove the entire subfolder if everything above succeeded
-        # (Even if there were 0 JSONs, we remove the folder after a successful run to keep the tree clean.)
         try:
             shutil.rmtree(sub)
             print(f"Removed subfolder: {sub}")
         except OSError as e:
             print(f"Error removing subfolder {sub}: {e}")
 
-        print(f"Subfolder '{sub.name}' done. JSONs moved: {moved_jsons}, files deleted: {deleted_files}")
+        print(
+            f"Subfolder '{sub.name}' done. JSONs moved: {moved_jsons}, files deleted: {deleted_files}"
+        )
 
     print("All subfolders processed.")
 
