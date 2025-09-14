@@ -107,7 +107,7 @@ class FineTuneCallback(Callback):
             self.logger.error(f"[FineTune] Failed to load weights from '{path}': {e}")
 
     @staticmethod
-    def _looks_like_head(name: str, module_path: str) -> bool:
+    def _looks_like_head(name: str, module_path: str, tie_weights: bool) -> bool:
         name_l = name.lower()
         path_l = module_path.lower()
         HEAD_TOKENS = (
@@ -115,6 +115,7 @@ class FineTuneCallback(Callback):
             "classifier", "classification",
             "regression",
             "output_head",  # sequential model
+            "embedding" if tie_weights else None,
         )
 
         return any(k in name_l for k in HEAD_TOKENS) or any(k in path_l for k in HEAD_TOKENS)
@@ -137,14 +138,14 @@ class FineTuneCallback(Callback):
 
         for n, p in model.named_parameters():
             mod_path = n.rsplit(".", 1)[0] if "." in n else n
-            if self._looks_like_head(n, mod_path):
+            if self._looks_like_head(n, mod_path, model.model_config.tie_weights):
                 head_params.append((n, p))
 
         def params_under(prefix: str) -> List[Tuple[str, nn.Parameter]]:
             items: List[Tuple[str, nn.Parameter]] = []
             pfx = prefix + "."
             for n, p in model.named_parameters():
-                if n.startswith(pfx) and not self._looks_like_head(n, prefix):
+                if n.startswith(pfx) and not self._looks_like_head(n, prefix, model.model_config.tie_weights):
                     items.append((n, p))
             return items
 
@@ -170,7 +171,7 @@ class FineTuneCallback(Callback):
 
             split = False
             for cname, child in mod.named_children():
-                if self._looks_like_head(cname, f"{prefix}.{cname}"):
+                if self._looks_like_head(cname, f"{prefix}.{cname}", model.model_config.tie_weights):
                     continue
                 ps = params_under(f"{prefix}.{cname}")
                 if ps:
@@ -184,7 +185,7 @@ class FineTuneCallback(Callback):
                 body_groups.append(ps_self)
 
         for cname, child in model.named_children():
-            if self._looks_like_head(cname, cname):
+            if self._looks_like_head(cname, cname, model.model_config.tie_weights):
                 continue
             add_groups(cname, child)
 
