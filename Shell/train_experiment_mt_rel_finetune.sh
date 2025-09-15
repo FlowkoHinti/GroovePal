@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=finetune__mt_relgu
+#SBATCH --job-name=finetune_mt_relgu
 #SBATCH --output=Log/%x_%j.out
 #SBATCH --error=Log/%x_%j.err
 #SBATCH --time=6-00:00

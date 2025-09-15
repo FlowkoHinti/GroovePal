@@ -110,13 +110,14 @@ class FineTuneCallback(Callback):
     def _looks_like_head(name: str, module_path: str, tie_weights: bool) -> bool:
         name_l = name.lower()
         path_l = module_path.lower()
-        HEAD_TOKENS = (
+        HEAD_TOKENS = [
             "head", "heads",  # generic
             "classifier", "classification",
             "regression",
             "output_head",  # sequential model
-            "embedding" if tie_weights else None,
-        )
+        ]
+        if tie_weights:
+            HEAD_TOKENS.append("embedding")
 
         return any(k in name_l for k in HEAD_TOKENS) or any(k in path_l for k in HEAD_TOKENS)
 
