@@ -69,13 +69,9 @@ def main():
     else:
         learner = SequentialDnaLearner(cfg)
 
-    # TODO: Models overfitting in Finetuning:
-    # - reduce initial LR + harsher decay + more warmup steps
-    # TODO: FIX BUG WITH SEQ MODELS
+
 
     # TODO: Sequential Model Sampler
-
-    # TODO: Finetuning Configs
 
     # TODO: Reduce model complexity -> eg. 7 blocks
 
