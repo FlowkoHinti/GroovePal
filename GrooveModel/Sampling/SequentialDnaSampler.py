@@ -7,8 +7,8 @@ from dacite import from_dict, Config as DaciteConfig
 from omegaconf import DictConfig, OmegaConf
 
 from Configs import MAX_SEQUENCE_LENGTH
-from GrooveModel.Embedding.MultiTaskDnaEmbedding import MultiTaskDNAEmbeddingConfig
-from GrooveModel.Models import ModelConfigxLstm, MultiTaskDNAxLSTM
+from GrooveModel.Embedding.SequentialDnaEmbedding import SequentialDNAEmbeddingConfig
+from GrooveModel.Models import ModelConfigxLstm, SequentialDNAxLSTM
 from GrooveModel.Sampling.Sampler import (
     DNATokenSampler,
     _load_cfg,
@@ -16,35 +16,14 @@ from GrooveModel.Sampling.Sampler import (
     _categorical_sample,
 )
 from GrooveModel.Tokenizer.MultiTaskDnaTokenizer import MultiTaskDnaTokenizer
+from GrooveModel.Tokenizer.SequentialDnaTokenizer import SequentialDnaTokenizer
 from GrooveModel.Utils.BeatUnit import decode_beat_unit
 from GrooveModel.Utils.DNAOffset import quantize_offset, decode_offset_ticks
 from GrooveModel.Utils.DNAValue import decode_instrument
 from GrooveModel.Utils.DNAVelocity import quantize_velocity, decode_velocity
 
-# -----------------------------
-# Helper: default column order
-# -----------------------------
-TOKEN_COLS: Dict[str, int] = {
-    "instrument": 0,
-    "velocity": 1,
-    "beat_unit": 2,
-    "offset": 3,
-    "grid_factor": 4,
-    "bpm": 5,
-    "time_signature": 6,
-}
 
-
-# -----------------------------
-# Multitask DNA Sampler
-# -----------------------------
-class MultitaskDNASampler(DNATokenSampler):
-    """
-    - Builds MultiTaskDNAxLSTM from a config (incl. tokenizer flags like absolute grid units).
-    - Restores weights from checkpoint.
-    - Tokenizes JSON context(s), runs autoregressive sampling with teacher forcing.
-    - Returns DNA-shaped payload(s) for each input context and requested number of variations.
-    """
+class SequentialDNASampler(DNATokenSampler):
 
     def __init__(
             self,
@@ -54,22 +33,31 @@ class MultitaskDNASampler(DNATokenSampler):
             use_best: bool = True,
     ):
         # Config + device
-        self.cfg = _load_cfg(cfg_or_path, seq=False)
+        self.cfg = _load_cfg(cfg_or_path, seq=True)
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        # Tokenizer (propagate tokenizer kwargs so flags like absolute_grid_units are honored)
+        self.tok_kwargs: Dict[str, Any] = dict(getattr(self.cfg.dataset, "tokenizer", {}))
+        self.absolute_grid_units: bool = bool(self.tok_kwargs.get("absolute_grid_units", False))
+        self.tokenizer = SequentialDnaTokenizer()
 
         # Build model
         self.embedding_config = from_dict(
-            MultiTaskDNAEmbeddingConfig,
+            SequentialDNAEmbeddingConfig,
             OmegaConf.to_container(self.cfg.embedding, resolve=True),
             config=DaciteConfig(strict=True),
         )
+        vocab_size = len(SequentialDnaTokenizer.vocab)
+        self.embedding_config.vocab_size = vocab_size
+
         model_config = from_dict(
             ModelConfigxLstm,
             OmegaConf.to_container(self.cfg.model, resolve=True),
             config=DaciteConfig(strict=True),
         )
-        self.model: MultiTaskDNAxLSTM = (
-            MultiTaskDNAxLSTM(model_config, self.embedding_config).to(self.device).eval()
+        self.model: SequentialDNAxLSTM = (
+            SequentialDNAxLSTM(model_config, self.embedding_config, self.absolute_grid_units).to(
+                self.device).eval()
         )
 
         # Checkpoint
@@ -77,42 +65,14 @@ class MultitaskDNASampler(DNATokenSampler):
         state = torch.load(str(ckpt_path), map_location="cpu")
         self.model.load_state_dict(state["model_state_dict"], strict=True)
 
-        # Tokenizer (propagate tokenizer kwargs so flags like absolute_grid_units are honored)
-        self.tok_kwargs: Dict[str, Any] = dict(getattr(self.cfg.dataset, "tokenizer", {}))
-        self.absolute_grid_units: bool = bool(self.tok_kwargs.get("absolute_grid_units", False))
-        self.tokenizer = MultiTaskDnaTokenizer()
-
-    def _quantize_regression_values(
-            self,
-            reg_value: torch.Tensor,
-            column: Literal["velocity", "offset"],
-            return_encoding: bool = False,
-            ticks_per_gu: Optional[int] = None,
-    ) -> Union[int, float]:
-        """
-        Quantize a regression head output to the nearest discrete bucket (id or value).
-        """
-        val = float(reg_value.item())
-        if column == "velocity":
-            step_id, step_val = quantize_velocity(val, return_as="both")
-            return step_id if return_encoding else step_val
-        elif column == "offset":
-            enc_id, step_val = quantize_offset(
-                val,
-                return_as="both",
-                ticks_per_grid_unit=ticks_per_gu,
-                start_at_zero=True,
-            )
-            return enc_id if return_encoding else step_val
-        else:
-            raise ValueError(f"Unsupported regression column: {column}")
 
     @torch.no_grad()
     def generate_autoregressive(
             self,
             context_tokens: torch.Tensor,  # shape: [1, C, F]
             beat_units: torch.Tensor,  # shape: [1, C]
-            dna_meta: Dict[str, Any],
+            units_per_bar: int,
+            absolute_grid_units: bool,
             temperature: float = 1.0,
             top_k: Optional[int] = None,
             top_p: Optional[float] = None,
@@ -120,43 +80,44 @@ class MultitaskDNASampler(DNATokenSampler):
     ) -> torch.Tensor:
         """
         Autoregressively generate new tokens conditioned on the context.
-        Returns a tensor of shape [C + max_tokens, F] (long).
+        Returns a tensor of shape [C + max_tokens] (long).
         """
         ctx_len = int(context_tokens.size(1))
-        feat_dim = int(context_tokens.size(2))
         new_tokens = int(max_tokens if max_tokens is not None else (MAX_SEQUENCE_LENGTH // 2))
 
-        out_steps = torch.zeros((ctx_len + new_tokens, feat_dim), dtype=torch.long, device=self.device)
+        out_steps = torch.zeros((ctx_len + new_tokens), dtype=torch.long, device=self.device)
+        out_beat_units = torch.zeros(new_tokens, dtype=torch.long, device=self.device)
+        out_beat_units[0] = beat_units[:,-1]
 
         state: Optional[Dict[str, Dict[str, Tuple[torch.Tensor, ...]]]] = None
         for t in range(ctx_len + new_tokens):
-            if t < ctx_len:
+            if t < ctx_len - 1:
                 # Teacher forcing on the provided context
-                context_tokens_t = context_tokens[:, t: t + 1, :]  # [1,1,F]
+                context_tokens_t = context_tokens[:, t: t + 1]  # [1,1,F]
                 beat_units_t = beat_units[:, t: t + 1]  # [1,1]
-                class_step, reg_step, state = self.model.step((context_tokens_t, beat_units_t), state=state)
+                class_step, state = self.model.step((context_tokens_t, beat_units_t), state=state)
                 # also copy the ground truth token into the buffer so we can reference it if needed
                 out_steps[t] = context_tokens[0, t]  # keep context tokens intact
             else:
                 # Use previous generated token
-                prev = out_steps[t - 1].unsqueeze(0).unsqueeze(1)  # [1,1,F]
-                beat_units_t = torch.zeros_like(beat_units[:, :1])  # placeholder; not used by the model here
-                class_step, reg_step, state = self.model.step((prev, beat_units_t), state=state)
+                bu_id = (t - ctx_len) + 1
+                prev = out_steps[t - 1].unsqueeze(0).unsqueeze(1)  # [1,1]
+                beat_units_t = out_beat_units[bu_id]
+                class_step, state = self.model.step((prev, beat_units_t), state=state)
 
                 # Sample / quantize each column
-                for col, i in TOKEN_COLS.items():
-                    if col in ("instrument", "grid_factor", "bpm", "time_signature", "beat_unit"):
-                        sample, _ = _categorical_sample(class_step[col], temperature, top_k, top_p)
-                        out_steps[t, i] = int(sample)
-                    else:
-                        out_steps[t, i] = int(
-                            self._quantize_regression_values(
-                                reg_step[col],
-                                column=col,  # type: ignore[arg-type]
-                                return_encoding=True,
-                                ticks_per_gu=int(dna_meta["TicksPerGridUnit"]),
-                            )
-                        )
+                sample, _ = _categorical_sample(class_step, temperature, top_k, top_p)
+                out_steps[t] = int(sample)
+
+                # Setup next beat unit -> when token = SEP
+                next_bu = beat_units_t.item() + 1 if sample == self.tokenizer.vocab.ID_SEP else beat_units_t.item()
+                if absolute_grid_units:
+                    out_beat_units[bu_id + 1] = next_bu
+                else:
+                    out_beat_units[bu_id + 1] = next_bu % units_per_bar
+
+                if sample == self.tokenizer.vocab.ID_EOS:
+                    break
 
         return out_steps
 
@@ -231,12 +192,13 @@ class MultitaskDNASampler(DNATokenSampler):
         T = int(tokens_ctx.size(0))
         ctx_len = min(T, int(self.cfg.model.context_length))
 
-        base_tokens_ctx = tokens_ctx[-ctx_len:].unsqueeze(0).to(self.device)  # (1, C, 7)
+        base_tokens_ctx = tokens_ctx[-ctx_len:].unsqueeze(0).to(self.device)  # (1, C)
         base_beat_ctx = beat_positions[-ctx_len:].unsqueeze(0).to(self.device)  # (1, C)
 
         variations: List[Dict[str, Any]] = []
         for variation in range(num_variations):
             dna = self.generate_dna_meta_base(dna_context, variation)
+            units_per_bar = int(dna["Numerator"]) * int(dna["GridFactor"])
 
             pred_tokens = self.generate_autoregressive(
                 base_tokens_ctx,
@@ -249,16 +211,9 @@ class MultitaskDNASampler(DNATokenSampler):
             )
 
             # === Build DNAUnits from predictions ===
-            units_per_bar = int(dna["Numerator"]) * int(dna["GridFactor"])
 
-            if self.absolute_grid_units:
-                dna_units, bar_count = self._build_dna_units_absolute(
-                    pred_tokens, units_per_bar, int(dna["TicksPerGridUnit"]), max_bars
-                )
-            else:
-                dna_units, bar_count = self._build_dna_units_relative(
-                    pred_tokens, units_per_bar, int(dna["TicksPerGridUnit"]), max_bars
-                )
+            dna_units, bar_count = self._build_dna_units()
+
 
             dna["DNAUnits"] = dna_units
             dna["NumberOfBars"] = bar_count
@@ -340,23 +295,11 @@ class MultitaskDNASampler(DNATokenSampler):
             pred_tokens: torch.Tensor,  # [N, F]
             units_per_bar: int,
             ticks_per_grid_unit: int,
-            max_bars: Optional[int] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """
         For absolute grid-unit encoding, BeatUnit is the absolute index (0-based).
         We place token data directly at that position.
         """
-        # Suppress implausible jumps between consecutive beat units
-        col = TOKEN_COLS["beat_unit"]
-        diffs = torch.diff(pred_tokens[:, col], prepend=pred_tokens[:1, col])
-        pred_tokens = pred_tokens[torch.abs(diffs) < 4]
-
-        # Optional truncate to max bars
-        if max_bars:
-            pred_tokens = pred_tokens[: max_bars * units_per_bar]
-
-        if pred_tokens.numel() == 0:
-            return [], 0
 
         max_pos = int(torch.max(pred_tokens[:, TOKEN_COLS["beat_unit"]]).item())
         size = max_pos + 1  # include last position
@@ -380,16 +323,12 @@ class MultitaskDNASampler(DNATokenSampler):
             pred_tokens: torch.Tensor,  # [N, F]
             units_per_bar: int,
             ticks_per_grid_unit: int,
-            max_bars: Optional[int] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """
         For relative grid-unit encoding, we detect bar starts (BeatUnit==1),
         slice bars, and place tokens within each bar.
         """
-        # Keep tokens that fall within a bar window
-        pred_tokens = pred_tokens[pred_tokens[:, TOKEN_COLS["beat_unit"]] < units_per_bar]
-        if pred_tokens.numel() == 0:
-            return [], 0
+
 
         # Detect non-repeating bar starts at BeatUnit == 1
         bu_col = TOKEN_COLS["beat_unit"]

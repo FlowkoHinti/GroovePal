@@ -35,21 +35,25 @@ def _inject_paths(cfg: DictConfig) -> DictConfig:
     return cfg
 
 
-def _prepare_config(cfg: DictConfig) -> DictConfig:
+def _prepare_config(cfg: DictConfig, seq: bool) -> DictConfig:
     # Align with Main.py behavior for MultiTask models
     cfg.model.context_length = MAX_SEQUENCE_LENGTH
-    cfg.model.embedding_dim = _compute_embedding_dim(cfg.embedding)
+    if seq:
+        cfg.model.embedding_dim = cfg.embedding.embedding_dim
+    else:
+        cfg.model.embedding_dim = _compute_embedding_dim(cfg.embedding)
+
     return _inject_paths(cfg)
 
 
-def _load_cfg(cfg_or_path: Union[str, Path, DictConfig]) -> DictConfig:
+def _load_cfg(cfg_or_path: Union[str, Path, DictConfig], seq: bool) -> DictConfig:
     if isinstance(cfg_or_path, (str, Path)):
         cfg = OmegaConf.load(str(cfg_or_path))
     elif isinstance(cfg_or_path, DictConfig):
         cfg = cfg_or_path
     else:
         raise TypeError("cfg_or_path must be a path to YAML or an OmegaConf DictConfig.")
-    return _prepare_config(cfg)
+    return _prepare_config(cfg, seq)
 
 
 def _select_checkpoint_path(cfg: DictConfig, checkpoint: Optional[Union[str, Path]], use_best: bool) -> Path:

@@ -9,6 +9,7 @@ from omegaconf import OmegaConf, DictConfig
 from Configs import BASE_PATH, MAX_SEQUENCE_LENGTH
 from GrooveModel.Datasets import get_all_dna_json_paths, load_dna_json
 from GrooveModel.Sampling.MultiTaskDnaSampler import MultitaskDNASampler
+from GrooveModel.Sampling.SequentialDnaSampler import SequentialDNASampler
 
 HEAD_ORDER = ["instrument", "velocity", "beat_unit", "offset", "grid_factor", "bpm", "time_signature"]
 
@@ -35,7 +36,10 @@ def main():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    sampler = MultitaskDNASampler(cfg_path, model_dir, device, use_best=True)
+    if "multitask" in args.config:
+        sampler = MultitaskDNASampler(cfg_path, model_dir, device, use_best=True)
+    else:
+        sampler = SequentialDNASampler(cfg_path, model_dir, device, use_best=True)
     result = sampler.sample(dnas[0], temperature=1.0, top_k=None, top_p=0.8, max_tokens=100)
 
 

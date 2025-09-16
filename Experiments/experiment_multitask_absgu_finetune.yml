@@ -55,7 +55,7 @@ model:
   slstm_at: [7, 13]
 
 train:
-  model_name: intermediate_multitask_absoluteGridUnits
+  model_name: finetuned_multitask_absoluteGridUnits
   save_dir: Models
   device: cuda
   batch_size: 32
