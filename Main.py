@@ -69,11 +69,8 @@ def main():
     else:
         learner = SequentialDnaLearner(cfg)
 
-
-
-    # TODO: Sequential Model Sampler
-
-    # TODO: Reduce model complexity -> eg. 7 blocks
+    # TODO: WEIGH METRICS CORRECTLY
+    # TODO: COMPARE FIXED LOSS WEIGHTS/NO LOSS WEIGHTS/Learnable Loss weights
 
     # Start training
     if args.train:

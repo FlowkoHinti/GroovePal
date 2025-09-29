@@ -19,7 +19,7 @@ from GrooveModel.Datasets import DNANextTokenDataset
 from GrooveModel.Embedding.MultiTaskDnaEmbedding import MultiTaskDNAEmbeddingConfig
 from GrooveModel.Learner.Learner import BaseDNALearner, sort_params_by_name
 from GrooveModel.Learner.LearnerState import LearnerState
-from GrooveModel.Loss import UncertaintyWeightedMultiTaskLoss
+from GrooveModel.Loss import UncertaintyWeightedMultiTaskLoss, ManualMultitaskLoss, NaiveMultitaskLoss
 from GrooveModel.Metrics import MultiTaskDNAMetrics
 from GrooveModel.Models import ModelConfigxLstm, MultiTaskDNAxLSTM
 from GrooveModel.Tokenizer.MultiTaskDnaTokenizer import MultiTaskDnaTokenizer
@@ -103,33 +103,75 @@ class MultiTaskDNALearner(BaseDNALearner):
                 self.cfg.train.save_dir) / f"{self.cfg.train.finetune.init_from}" / "checkpoints" / f"{self.cfg.train.finetune.init_from}_best.pt"
 
     def _setup_criterion(self):
-        self.criterion = UncertaintyWeightedMultiTaskLoss(
-            tasks={
-                "instrument": {"type": "ce"},
-                "velocity": {"type": "mae"},
-                "beat_unit": {"type": "ce"},
-                "offset": {"type": "mae"},
-                "grid_factor": {"type": "ce"},
-                "bpm": {"type": "ce"},
-                "time_signature": {"type": "ce"},
-            },
-            reduction="mean",
-            ce_kwargs={"instrument": {"ignore_index": SpecialTokens.PAD, "label_smoothing": 0.1},
-                       "beat_unit": {"ignore_index": SpecialTokens.PAD, "label_smoothing": 0.1},
-                       "grid_factor": {"ignore_index": SpecialTokens.PAD, "label_smoothing": 0.1},
-                       "bpm": {"ignore_index": SpecialTokens.PAD, "label_smoothing": 0.1},
-                       "time_signature": {"ignore_index": SpecialTokens.PAD, "label_smoothing": 0.1}},
-            init_log_vars={
-                "instrument": 0.14,
-                "velocity": 0.14,
-                "beat_unit": 0.14,
-                "offset": 0.14,
-                "grid_factor": 0.14,
-                "bpm": 0.14,
-                "time_signature": 0.14,
-            },
-            device=self.device,
-        )
+
+        tasks = {
+            "instrument": {"type": "ce"},
+            "velocity": {"type": "mae"},
+            "beat_unit": {"type": "ce"},
+            "offset": {"type": "mae"},
+            "grid_factor": {"type": "ce"},
+            "bpm": {"type": "ce"},
+            "time_signature": {"type": "ce"},
+        }
+        ce_kwargs = {
+            "instrument": {"ignore_index": SpecialTokens.PAD, "label_smoothing": 0.1},
+            "beat_unit": {"ignore_index": SpecialTokens.PAD, "label_smoothing": 0.1},
+            "grid_factor": {"ignore_index": SpecialTokens.PAD, "label_smoothing": 0.1},
+            "bpm": {"ignore_index": SpecialTokens.PAD, "label_smoothing": 0.1},
+            "time_signature": {"ignore_index": SpecialTokens.PAD, "label_smoothing": 0.1},
+        }
+
+        match self.cfg.train.loss:
+            case "manual":
+                # Optionally define in config:
+                # cfg.train.manual_weights = {"instrument":1, "velocity":0.5, ...}
+                # cfg.train.normalize_weights = False
+                weights = getattr(self.cfg.train, "manual_weights", {
+                    "instrument": 1.0,
+                    "velocity": 1.0,
+                    "beat_unit": 1.0,
+                    "offset": 1.0,
+                    "grid_factor": 1.0,
+                    "bpm": 1.0,
+                    "time_signature": 1.0,
+                })
+                normalize = bool(getattr(self.cfg.train, "normalize_weights", False))
+
+                self.criterion = ManualMultitaskLoss(
+                    tasks=tasks,
+                    weights=weights,
+                    reduction="mean",
+                    ce_kwargs=ce_kwargs,
+                    normalize=normalize,
+                    strict_weights=False,
+                    device=self.device,
+                )
+
+            case "naive":
+                # Naive sum of losses (no weighting)
+                self.criterion = NaiveMultitaskLoss(
+                    tasks=tasks,
+                    reduction="mean",
+                    ce_kwargs=ce_kwargs,
+                    device=self.device,
+                )
+
+            case _:
+                self.criterion = UncertaintyWeightedMultiTaskLoss(
+                    tasks=tasks,
+                    reduction="mean",
+                    ce_kwargs=ce_kwargs,
+                    init_log_vars={
+                        "instrument": 0.14,
+                        "velocity": 0.14,
+                        "beat_unit": 0.14,
+                        "offset": 0.14,
+                        "grid_factor": 0.14,
+                        "bpm": 0.14,
+                        "time_signature": 0.14,
+                    },
+                    device=self.device,
+                )
 
     def _setup_optimizer(self):
         # use your existing group creator (don’t modify it)

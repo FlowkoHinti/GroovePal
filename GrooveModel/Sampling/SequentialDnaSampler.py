@@ -1,4 +1,6 @@
 import math
+from doctest import UnexpectedException
+from enum import IntEnum, auto
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union, Literal
 
@@ -18,10 +20,17 @@ from GrooveModel.Sampling.Sampler import (
 from GrooveModel.Tokenizer.MultiTaskDnaTokenizer import MultiTaskDnaTokenizer
 from GrooveModel.Tokenizer.SequentialDnaTokenizer import SequentialDnaTokenizer
 from GrooveModel.Utils.BeatUnit import decode_beat_unit
-from GrooveModel.Utils.DNAOffset import quantize_offset, decode_offset_ticks
-from GrooveModel.Utils.DNAValue import decode_instrument
+from GrooveModel.Utils.DNAOffset import quantize_offset, decode_offset_ticks, percent_step_to_offset
+from GrooveModel.Utils.DNAValue import decode_instrument, InstrumentValues
 from GrooveModel.Utils.DNAVelocity import quantize_velocity, decode_velocity
 
+
+class Tokentype(IntEnum):
+    Start = 0
+    Instrument = auto()
+    Velocity = auto()
+    Offset = auto()
+    Control = auto()
 
 class SequentialDNASampler(DNATokenSampler):
 
@@ -65,14 +74,12 @@ class SequentialDNASampler(DNATokenSampler):
         state = torch.load(str(ckpt_path), map_location="cpu")
         self.model.load_state_dict(state["model_state_dict"], strict=True)
 
-
     @torch.no_grad()
     def generate_autoregressive(
             self,
-            context_tokens: torch.Tensor,  # shape: [1, C, F]
+            context_tokens: torch.Tensor,  # should be [1, C] if these are IDs (not [1, C, F])
             beat_units: torch.Tensor,  # shape: [1, C]
             units_per_bar: int,
-            absolute_grid_units: bool,
             temperature: float = 1.0,
             top_k: Optional[int] = None,
             top_p: Optional[float] = None,
@@ -82,40 +89,65 @@ class SequentialDNASampler(DNATokenSampler):
         Autoregressively generate new tokens conditioned on the context.
         Returns a tensor of shape [C + max_tokens] (long).
         """
+
+        # Get the Rest Id for correct Rest handling
+        v = self.tokenizer.vocab
+        rest_id = v.instrument_id_from_value(InstrumentValues.Rest)
+
         ctx_len = int(context_tokens.size(1))
         new_tokens = int(max_tokens if max_tokens is not None else (MAX_SEQUENCE_LENGTH // 2))
 
+        # Allocate token output buffer
         out_steps = torch.zeros((ctx_len + new_tokens), dtype=torch.long, device=self.device)
-        out_beat_units = torch.zeros(new_tokens, dtype=torch.long, device=self.device)
-        out_beat_units[0] = beat_units[:,-1]
+
+        # Beat-unit buffer needs to be longer than new_tokens because we
+        # always write "the next" unit after using the current one.
+        out_beat_units = torch.zeros(new_tokens + 2, dtype=torch.long, device=self.device)
+        out_beat_units[0] = beat_units[0, -1]  # store last context beat unit as starting point
 
         state: Optional[Dict[str, Dict[str, Tuple[torch.Tensor, ...]]]] = None
+
         for t in range(ctx_len + new_tokens):
             if t < ctx_len - 1:
-                # Teacher forcing on the provided context
-                context_tokens_t = context_tokens[:, t: t + 1]  # [1,1,F]
+                # --- Teacher forcing branch (use provided context) ---
+                context_tokens_t = context_tokens[:, t: t + 1]  # [1,1]
                 beat_units_t = beat_units[:, t: t + 1]  # [1,1]
                 class_step, state = self.model.step((context_tokens_t, beat_units_t), state=state)
-                # also copy the ground truth token into the buffer so we can reference it if needed
-                out_steps[t] = context_tokens[0, t]  # keep context tokens intact
+
+                # Copy the ground-truth token ID into the buffer
+                out_steps[t] = context_tokens[0, t]
             else:
-                # Use previous generated token
+                # --- Generation branch (use previous outputs) ---
                 bu_id = (t - ctx_len) + 1
-                prev = out_steps[t - 1].unsqueeze(0).unsqueeze(1)  # [1,1]
-                beat_units_t = out_beat_units[bu_id]
+
+                # Previous generated token -> shape [1,1]
+                prev = out_steps[t - 1].view(1, 1)
+
+                # Current beat unit -> also [1,1]
+                beat_units_t = out_beat_units[bu_id].view(1, 1)
+
+                # Step the model forward
                 class_step, state = self.model.step((prev, beat_units_t), state=state)
 
-                # Sample / quantize each column
+                # Sample from distribution
                 sample, _ = _categorical_sample(class_step, temperature, top_k, top_p)
                 out_steps[t] = int(sample)
 
-                # Setup next beat unit -> when token = SEP
-                next_bu = beat_units_t.item() + 1 if sample == self.tokenizer.vocab.ID_SEP else beat_units_t.item()
-                if absolute_grid_units:
-                    out_beat_units[bu_id + 1] = next_bu
+                # Compute next beat unit
+                if sample == v.ID_SEP or sample == rest_id:
+                    next_bu = beat_units_t.item() + 1
                 else:
-                    out_beat_units[bu_id + 1] = next_bu % units_per_bar
+                    next_bu = beat_units_t.item()
 
+                # Wrap around if relative grid is used
+                if not self.absolute_grid_units:
+                    next_bu = next_bu % units_per_bar
+
+                # Only write the next slot if it’s inside bounds
+                if bu_id + 1 < out_beat_units.numel():
+                    out_beat_units[bu_id + 1] = next_bu
+
+                # Stop early on EOS
                 if sample == self.tokenizer.vocab.ID_EOS:
                     break
 
@@ -199,11 +231,12 @@ class SequentialDNASampler(DNATokenSampler):
         for variation in range(num_variations):
             dna = self.generate_dna_meta_base(dna_context, variation)
             units_per_bar = int(dna["Numerator"]) * int(dna["GridFactor"])
+            ticks_per_grid_unit = int(dna["TicksPerGridUnit"])
 
             pred_tokens = self.generate_autoregressive(
                 base_tokens_ctx,
                 base_beat_ctx,
-                dna,
+                units_per_bar,
                 temperature=temperature,
                 top_k=top_k,
                 top_p=top_p,
@@ -212,7 +245,7 @@ class SequentialDNASampler(DNATokenSampler):
 
             # === Build DNAUnits from predictions ===
 
-            dna_units, bar_count = self._build_dna_units()
+            dna_units, bar_count = self._build_dna_units(pred_tokens, units_per_bar, ticks_per_grid_unit)
 
 
             dna["DNAUnits"] = dna_units
@@ -240,46 +273,6 @@ class SequentialDNASampler(DNATokenSampler):
             "ContinuingLastUnit": False,
         }
 
-    def _decode_token_components(
-            self,
-            token: torch.Tensor,
-            ticks_per_grid_unit: int,
-            absolute: bool,
-    ) -> Optional[Tuple[int, int, int, float]]:
-        """
-        Decode a single token row into (instrument, beat_unit, offset_ticks, velocity).
-        Returns None for rests / empty instruments.
-        """
-        instrument_id = int(token[TOKEN_COLS["instrument"]].item())
-        instrument = decode_instrument(instrument_id)
-        if instrument == 0:
-            return None
-
-        beat_unit_raw = int(token[TOKEN_COLS["beat_unit"]].item())
-        beat_unit = int(decode_beat_unit(beat_unit_raw, absolute=absolute))
-
-        offset_enc = int(token[TOKEN_COLS["offset"]].item())
-        offset = int(decode_offset_ticks(offset_enc, ticks_per_grid_unit, start_at_zero=True))
-
-        velocity_enc = int(token[TOKEN_COLS["velocity"]].item())
-        velocity = float(decode_velocity(velocity_enc))
-
-        return instrument, beat_unit, offset, velocity
-
-    @staticmethod
-    def _apply_event_to_unit(
-            unit: Dict[str, Any],
-            instrument: int,
-            offset_ticks: int,
-            velocity: float,
-    ) -> None:
-        """Mutate a unit dict with a single (instrument, offset, velocity) event."""
-        unit["Value"] |= instrument
-        key = str(instrument)
-        unit["OffsetTicksPerValuePart"][key] = offset_ticks
-        unit["VelocityPerValuePart"][key] = velocity
-        unit["IsEmpty"] = False
-
     @staticmethod
     def _finalize_units_average(units: List[Dict[str, Any]]) -> None:
         """Compute AvgVelocity / AvgOffsetTicks once per unit."""
@@ -290,79 +283,73 @@ class SequentialDNASampler(DNATokenSampler):
             unit["AvgVelocity"] = (sum(velocities) / n) if n else 0.0
             unit["AvgOffsetTicks"] = int(round(sum(offsets) / n)) if n else 0
 
-    def _build_dna_units_absolute(
-            self,
-            pred_tokens: torch.Tensor,  # [N, F]
-            units_per_bar: int,
-            ticks_per_grid_unit: int,
-    ) -> Tuple[List[Dict[str, Any]], int]:
-        """
-        For absolute grid-unit encoding, BeatUnit is the absolute index (0-based).
-        We place token data directly at that position.
-        """
+    def _build_dna_units(self, pred_tokens: torch.Tensor, units_per_bar: int, ticks_per_gridunit: int) -> Tuple[List[Dict[str, Any]], int]:
 
-        max_pos = int(torch.max(pred_tokens[:, TOKEN_COLS["beat_unit"]]).item())
-        size = max_pos + 1  # include last position
-        bar_count = math.ceil(size / units_per_bar)
+        vocab = self.tokenizer.vocab
 
-        dna_units: List[Dict[str, Any]] = [self._init_empty_unit() for _ in range(size)]
+        units: List[Dict[str, Any]] = [self._init_empty_unit()]
+        unit_id: int = 0
+        last_token: Tokentype = Tokentype.Start
+        key: str = ""
 
-        for token in pred_tokens:
-            decoded = self._decode_token_components(token, ticks_per_grid_unit, absolute=True)
-            if decoded is None:
+        for token_id in pred_tokens:
+            if token_id in (vocab.ID_EOS, vocab['PAD']):
+                break
+
+            token = vocab.token(token_id)
+
+            # Unit handling
+            if token_id == vocab.ID_SEP:
+                unit_id += 1
+                units.append(self._init_empty_unit())
+                key = ""
+                last_token = Tokentype.Control
+
+            elif token in vocab.INSTRUMENTS:
+                if last_token in (Tokentype.Start, Tokentype.Control, Tokentype.Offset):
+                    instrument = token
+                    value = InstrumentValues[instrument]
+
+                    if value == InstrumentValues.Rest:
+                        # Treat REST as a full empty step: advance to a new unit.
+                        unit_id += 1
+                        units.append(self._init_empty_unit())
+                        key = ""
+                        last_token = Tokentype.Control
+                        continue
+
+                    units[unit_id]["Value"] += value
+                    units[unit_id]["IsEmpty"] = False
+                    key = str(value)
+                    last_token = Tokentype.Instrument
+
+            elif token in vocab.VELOCITIES:
+                if last_token in (Tokentype.Instrument, Tokentype.Offset) and key != "":
+                    velocity = int(token.split("_")[1])
+                    velocity = decode_velocity(velocity, include_padding=False)
+                    units[unit_id]["VelocityPerValuePart"][key] = velocity
+                    last_token = Tokentype.Velocity
+
+            elif token in vocab.OFFSETS:
+                if last_token in (Tokentype.Instrument, Tokentype.Velocity) and key != "":
+                    offset_step = int(token.split("_")[2])
+                    offset = percent_step_to_offset(offset_step, ticks_per_gridunit)
+                    units[unit_id]["OffsetTicksPerValuePart"][key] = offset
+                    last_token = Tokentype.Offset
+
+            # NO HANDLING FOR NOW -> WE TAKE THE ORIGINAL METADATA
+            elif token in vocab.BPM:
                 continue
-            instrument, beat_unit, offset, velocity = decoded
-            if 0 <= beat_unit < size:
-                self._apply_event_to_unit(dna_units[beat_unit], instrument, offset, velocity)
+            elif token in vocab.GRID_FACTORS:
+                continue
+            elif token in vocab.TIME_SIGNATURES:
+                continue
+            elif token in vocab.SPECIAL_TOKENS:
+                continue
+            else:
+                raise ValueError(token)
 
-        self._finalize_units_average(dna_units)
-        return dna_units, bar_count
+        self._finalize_units_average(units)
+        bar_count = math.ceil(len(units) / units_per_bar)
 
-    def _build_dna_units_relative(
-            self,
-            pred_tokens: torch.Tensor,  # [N, F]
-            units_per_bar: int,
-            ticks_per_grid_unit: int,
-    ) -> Tuple[List[Dict[str, Any]], int]:
-        """
-        For relative grid-unit encoding, we detect bar starts (BeatUnit==1),
-        slice bars, and place tokens within each bar.
-        """
-
-
-        # Detect non-repeating bar starts at BeatUnit == 1
-        bu_col = TOKEN_COLS["beat_unit"]
-        bar_starts: List[int] = []
-        prev_is_one = False
-        for idx in range(pred_tokens.size(0)):
-            is_one = int(pred_tokens[idx, bu_col].item()) == 1
-            if is_one and not prev_is_one:
-                bar_starts.append(idx)
-            prev_is_one = is_one
-
-        # Slice into bars
-        bars: List[torch.Tensor] = []
-        for i, s in enumerate(bar_starts):
-            e = bar_starts[i + 1] if i + 1 < len(bar_starts) else pred_tokens.size(0)
-            if e > s:
-                bars.append(pred_tokens[s:e])
-
-        if max_bars:
-            bars = bars[:max_bars]
-
-        bar_count = len(bars)
-        dna_units: List[Dict[str, Any]] = []
-
-        for bar in bars:
-            bar_units = [self._init_empty_unit() for _ in range(units_per_bar)]
-            for token in bar:
-                decoded = self._decode_token_components(token, ticks_per_grid_unit, absolute=False)
-                if decoded is None:
-                    continue
-                instrument, beat_unit, offset, velocity = decoded
-                if 0 <= beat_unit < units_per_bar:
-                    self._apply_event_to_unit(bar_units[beat_unit], instrument, offset, velocity)
-            dna_units.extend(bar_units)
-
-        self._finalize_units_average(dna_units)
-        return dna_units, bar_count
+        return units, bar_count
