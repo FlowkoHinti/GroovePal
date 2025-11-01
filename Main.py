@@ -70,7 +70,6 @@ def main():
         learner = SequentialDnaLearner(cfg)
 
     # TODO: WEIGH METRICS CORRECTLY
-    # TODO: COMPARE FIXED LOSS WEIGHTS/NO LOSS WEIGHTS/Learnable Loss weights
 
     # Start training
     if args.train:

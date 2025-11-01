@@ -1,6 +1,7 @@
 import subprocess
 import sys
 from pathlib import Path
+import shutil
 
 
 def main():
@@ -39,12 +40,17 @@ def main():
             print(" STDERR ")
             print(result.stderr)
 
-            if result.returncode == 0:
-                print(f"[SUCCESS] {json_file.name} converted successfully.")
+            # Default output filename used by DNAConsole
+            default_midi = folder / "expansion0.mid"
+
+            # Target filename based on input JSON
+            target_midi = folder / f"{json_file.stem}.mid"
+
+            if default_midi.exists():
+                shutil.move(default_midi, target_midi)
+                print(f"[SUCCESS] Created {target_midi.name}")
             else:
-                print(
-                    f"[ERROR] DNAConsole.exe exited with code {result.returncode} for {json_file.name}"
-                )
+                print(f"[WARNING] Expected output {default_midi} not found!")
 
         except subprocess.CalledProcessError as e:
             print(f"[ERROR] Execution failed for {json_file.name} with return code {e.returncode}")

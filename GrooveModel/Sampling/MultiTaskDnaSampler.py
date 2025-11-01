@@ -221,7 +221,7 @@ class MultitaskDNASampler(DNATokenSampler):
             top_k: Optional[int] = None,
             top_p: Optional[float] = None,
             max_tokens: Optional[int] = None,
-            max_bars: Optional[int] = 4,
+            max_bars: Optional[int] = None,
             num_variations: int = 1,
     ) -> List[Dict[str, Any]]:
         """

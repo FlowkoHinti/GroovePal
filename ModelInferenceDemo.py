@@ -57,7 +57,7 @@ def main():
     for i, dna_entry in enumerate(result):
         out_path = out_dir / f"dna_{i}.json"
         with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(dna_entry, f, ensure_ascii=False, indent=2)
+            json.dump([dna_entry], f, ensure_ascii=False, indent=2)
         print(f"[Saved] {out_path}")
 
 
