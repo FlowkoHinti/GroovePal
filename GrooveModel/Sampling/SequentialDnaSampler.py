@@ -77,7 +77,7 @@ class SequentialDNASampler(DNATokenSampler):
     @torch.no_grad()
     def generate_autoregressive(
             self,
-            context_tokens: torch.Tensor,  # should be [1, C] if these are IDs (not [1, C, F])
+            context_tokens: torch.Tensor,  # should be [1, C] if these are IDs
             beat_units: torch.Tensor,  # shape: [1, C]
             units_per_bar: int,
             temperature: float = 1.0,
@@ -112,7 +112,7 @@ class SequentialDNASampler(DNATokenSampler):
                 # --- Teacher forcing branch (use provided context) ---
                 context_tokens_t = context_tokens[:, t: t + 1]  # [1,1]
                 beat_units_t = beat_units[:, t: t + 1]  # [1,1]
-                class_step, state = self.model.step((context_tokens_t, beat_units_t), state=state)
+                class_step, state = self.model.step((context_tokens_t, beat_units_t), state=state, inference=True)
 
                 # Copy the ground-truth token ID into the buffer
                 out_steps[t] = context_tokens[0, t]
@@ -216,23 +216,42 @@ class SequentialDNASampler(DNATokenSampler):
             max_tokens: Optional[int] = None,
             max_bars: Optional[int] = 4,
             num_variations: int = 1,
-    ) -> List[Dict[str, Any]]:
+    ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
         """
         Tokenize the context, generate continuations, and build DNAUnits payload(s).
+
+        Returns:
+            base_dna: The original (preprocessed) DNA
+            variations: List of generated DNAs (each with generated DNAUnits only)
         """
-        tokens_ctx, beat_positions = self.tokenizer.tokenize(dna_context, **self.tok_kwargs)  # (T,7), (T,)
+        # --- Tokenize the input context
+        tokens_ctx, beat_positions = self.tokenizer.tokenize(dna_context, **self.tok_kwargs)  # (T,), (T,)
         T = int(tokens_ctx.size(0))
         ctx_len = min(T, int(self.cfg.model.context_length))
 
         base_tokens_ctx = tokens_ctx[-ctx_len:].unsqueeze(0).to(self.device)  # (1, C)
         base_beat_ctx = beat_positions[-ctx_len:].unsqueeze(0).to(self.device)  # (1, C)
 
+        # --- Build the base/original DNA
+        base_dna = self.generate_dna_meta_base(dna_context, variation=-1)
+        units_per_bar = int(base_dna["Numerator"]) * int(base_dna["GridFactor"])
+        ticks_per_grid_unit = int(base_dna["TicksPerGridUnit"])
+
+        # Build from original (non-generated) tokens
+        base_units, base_bar_count = self._build_dna_units(
+            tokens_ctx, units_per_bar, ticks_per_grid_unit
+        )
+        base_dna["DNAUnits"] = base_units
+        base_dna["NumberOfBars"] = base_bar_count
+
+        # --- Generate variations
         variations: List[Dict[str, Any]] = []
         for variation in range(num_variations):
             dna = self.generate_dna_meta_base(dna_context, variation)
             units_per_bar = int(dna["Numerator"]) * int(dna["GridFactor"])
             ticks_per_grid_unit = int(dna["TicksPerGridUnit"])
 
+            # Generate continuation
             pred_tokens = self.generate_autoregressive(
                 base_tokens_ctx,
                 base_beat_ctx,
@@ -243,17 +262,20 @@ class SequentialDNASampler(DNATokenSampler):
                 max_tokens=max_tokens,
             )
 
-            # === Build DNAUnits from predictions ===
+            # Slice off context portion (keep only generated tokens)
+            ctx_len = int(base_tokens_ctx.size(1))
+            gen_tokens = pred_tokens[ctx_len:]
 
-            dna_units, bar_count = self._build_dna_units(pred_tokens, units_per_bar, ticks_per_grid_unit)
-
+            # --- Build DNAUnits only from generated tokens
+            dna_units, bar_count = self._build_dna_units(
+                gen_tokens, units_per_bar, ticks_per_grid_unit
+            )
 
             dna["DNAUnits"] = dna_units
             dna["NumberOfBars"] = bar_count
-
             variations.append(dna)
 
-        return variations
+        return base_dna, variations
 
     # -----------------------------
     # DNA construction helpers

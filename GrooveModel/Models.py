@@ -78,11 +78,13 @@ class MultiTaskDNAxLSTM(WeightDecayOptimGroupMixin, nn.Module):
 
     def forward(
             self,
-                idx: tuple[torch.Tensor, torch.Tensor]
+            idx: tuple[torch.Tensor, torch.Tensor],
+            **kwargs
     ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
         x, beat_pos = idx
         x = self.token_embedding(x)
-        x = self.emb_dropout(x)
+        if not kwargs.get("inference", False):
+            x = self.emb_dropout(x)
         x = self.xlstm_block_stack(x)
         logits = {head: layer(x) for head, layer in self.classification_heads.items()}
         reg_outputs = {head: layer(x) for head, layer in self.regression_heads.items()}
@@ -97,8 +99,9 @@ class MultiTaskDNAxLSTM(WeightDecayOptimGroupMixin, nn.Module):
     ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor], dict[str, dict[str, tuple[torch.Tensor, ...]]]]:
         x, beat_pos = idx
         x = self.token_embedding(x)
-        x = self.emb_dropout(x)
-        x, state = self.xlstm_block_stack.step(x, state=state, **kwargs)
+        if not kwargs.get("inference", False):
+            x = self.emb_dropout(x)
+        x, state = self.xlstm_block_stack.step(x, state=state)
         logits = {head: layer(x) for head, layer in self.classification_heads.items()}
         reg_outputs = {head: layer(x) for head, layer in self.regression_heads.items()}
 
@@ -159,12 +162,13 @@ class SequentialDNAxLSTM(WeightDecayOptimGroupMixin, nn.Module):
         if not self.model_config.tie_weights:
             small_init_init_(self.output_head.weight, dim=self.model_config.embedding_dim)
 
-    def forward(self, idx: torch.Tensor) -> torch.Tensor:
+    def forward(self, idx: torch.Tensor, **kwargs) -> torch.Tensor:
         x, beat_pos = idx
         x = self.token_embedding(x)
         if self.bpe:
             x = self.positional_encoding(x, beat_pos)
-        x = self.emb_dropout(x)
+        if not kwargs.get("inference", False):
+            x = self.emb_dropout(x)
         x = self.xlstm_block_stack(x)
         logits = self.output_head(x)
         return logits
@@ -176,8 +180,9 @@ class SequentialDNAxLSTM(WeightDecayOptimGroupMixin, nn.Module):
         x = self.token_embedding(x)
         if self.bpe:
             x = self.positional_encoding(x, beat_pos)
-        x = self.emb_dropout(x)
-        x, state = self.xlstm_block_stack.step(x, state=state, **kwargs)
+        if not kwargs.get("inference", False):
+            x = self.emb_dropout(x)
+        x, state = self.xlstm_block_stack.step(x, state=state)
         logits = self.output_head(x)
         return logits, state
 

@@ -19,6 +19,7 @@ def main():
     ap.add_argument("--config", type=str, default="experiment_initial",
                     help="Path to the experiment YAML used for training. Defaults to Experiments/experiment_initial.yml")
     ap.add_argument("--variations", type=int, default=1, help="Number of variations per DNA. Defaults to 1.")
+    ap.add_argument("--max_tokens", type=int, default=100,)
     args = ap.parse_args()
 
     # --- Load training config via OmegaConf ---
@@ -27,6 +28,7 @@ def main():
         raise FileNotFoundError(f"Config not found: {cfg_path}")
 
     num_variations = args.variations
+    max_tokens = args.max_tokens
 
     # Paths from script location
     model_dir = BASE_PATH / 'Models'
@@ -44,21 +46,26 @@ def main():
     else:
         sampler = SequentialDNASampler(cfg_path, model_dir, device, use_best=True)
 
-    result = sampler.sample(
+    original, results = sampler.sample(
         dnas[0],
         temperature=1.0,
         top_k=None,
         top_p=0.8,
-        max_tokens=100,
+        max_tokens=max_tokens,
         num_variations=num_variations
     )
 
     # --- Save each DNA prediction to its own file ---
-    for i, dna_entry in enumerate(result):
+    for i, dna_entry in enumerate(results):
         out_path = out_dir / f"dna_{i}.json"
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump([dna_entry], f, ensure_ascii=False, indent=2)
         print(f"[Saved] {out_path}")
+
+    original_path = out_dir / "og_dna.json"
+    with open(original_path, "w", encoding="utf-8") as f:
+        json.dump([original], f, ensure_ascii=False, indent=2)
+    print(f"[Saved] {original_path}")
 
 
 if __name__ == "__main__":

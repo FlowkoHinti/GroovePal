@@ -134,7 +134,7 @@ class MultitaskDNASampler(DNATokenSampler):
                 # Teacher forcing on the provided context
                 context_tokens_t = context_tokens[:, t: t + 1, :]  # [1,1,F]
                 beat_units_t = beat_units[:, t: t + 1]  # [1,1]
-                class_step, reg_step, state = self.model.step((context_tokens_t, beat_units_t), state=state)
+                class_step, reg_step, state = self.model.step((context_tokens_t, beat_units_t), state=state, inference=True)
                 # also copy the ground truth token into the buffer so we can reference it if needed
                 out_steps[t] = context_tokens[0, t]  # keep context tokens intact
             else:
@@ -223,10 +223,15 @@ class MultitaskDNASampler(DNATokenSampler):
             max_tokens: Optional[int] = None,
             max_bars: Optional[int] = None,
             num_variations: int = 1,
-    ) -> List[Dict[str, Any]]:
+    ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
         """
         Tokenize the context, generate continuations, and build DNAUnits payload(s).
+
+        Returns:
+            - base_dna: Dict[str, Any]  # original dna_context rebuilt with preprocessed DNAUnits
+            - variations: List[Dict[str, Any]]  # generated variations
         """
+        # --- Tokenize context
         tokens_ctx, beat_positions = self.tokenizer.tokenize(dna_context, **self.tok_kwargs)  # (T,7), (T,)
         T = int(tokens_ctx.size(0))
         ctx_len = min(T, int(self.cfg.model.context_length))
@@ -234,6 +239,23 @@ class MultitaskDNASampler(DNATokenSampler):
         base_tokens_ctx = tokens_ctx[-ctx_len:].unsqueeze(0).to(self.device)  # (1, C, 7)
         base_beat_ctx = beat_positions[-ctx_len:].unsqueeze(0).to(self.device)  # (1, C)
 
+        # --- Build a DNA version for the *original* context (non-generated)
+        base_dna = self.generate_dna_meta_base(dna_context, variation=-1)  # variation -1 = original
+        units_per_bar = int(base_dna["Numerator"]) * int(base_dna["GridFactor"])
+
+        if self.absolute_grid_units:
+            orig_units, bar_count = self._build_dna_units_absolute(
+                tokens_ctx, units_per_bar, int(base_dna["TicksPerGridUnit"]), max_bars
+            )
+        else:
+            orig_units, bar_count = self._build_dna_units_relative(
+                tokens_ctx, units_per_bar, int(base_dna["TicksPerGridUnit"]), max_bars
+            )
+
+        base_dna["DNAUnits"] = orig_units
+        base_dna["NumberOfBars"] = bar_count
+
+        # --- Generate variations
         variations: List[Dict[str, Any]] = []
         for variation in range(num_variations):
             dna = self.generate_dna_meta_base(dna_context, variation)
@@ -248,24 +270,25 @@ class MultitaskDNASampler(DNATokenSampler):
                 max_tokens=max_tokens,
             )
 
-            # === Build DNAUnits from predictions ===
-            units_per_bar = int(dna["Numerator"]) * int(dna["GridFactor"])
+            ctx_len = int(base_tokens_ctx.size(1))
+            gen_tokens = pred_tokens[ctx_len:]  # exclude original context
 
             if self.absolute_grid_units:
                 dna_units, bar_count = self._build_dna_units_absolute(
-                    pred_tokens, units_per_bar, int(dna["TicksPerGridUnit"]), max_bars
+                    gen_tokens, units_per_bar, int(dna["TicksPerGridUnit"]), max_bars
                 )
             else:
                 dna_units, bar_count = self._build_dna_units_relative(
-                    pred_tokens, units_per_bar, int(dna["TicksPerGridUnit"]), max_bars
+                    gen_tokens, units_per_bar, int(dna["TicksPerGridUnit"]), max_bars
                 )
 
             dna["DNAUnits"] = dna_units
             dna["NumberOfBars"] = bar_count
-
             variations.append(dna)
 
-        return variations
+        # --- Return both
+        return base_dna, variations
+
 
     # -----------------------------
     # DNA construction helpers

@@ -153,7 +153,6 @@ def normalize_offset_tensor(off_ids, dtype=torch.float32) -> torch.Tensor:
 def quantize_offset(
         value: float,
         *,
-        # same knobs as your existing API
         ticks_per_grid_unit: int = OFFSET_TICKS_RESOLUTION,
         start_at_zero: bool = False,
         resolution: int = OFFSET_TICKS_RESOLUTION,
@@ -188,7 +187,7 @@ def quantize_offset(
         v = max(-1.0, min(1.0, float(value)))
 
     # snap by roundtrip: normalized -> ticks -> encoded token
-    ticks = denormalize_offset(v, ticks_per_grid_unit=ticks_per_grid_unit, start_at_zero=start_at_zero)
+    ticks = denormalize_offset(v, ticks_per_grid_unit=ticks_per_grid_unit, start_at_zero=False)
 
     encoded_id = encode_offset_ticks(
         offset=ticks,
