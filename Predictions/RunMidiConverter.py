@@ -9,9 +9,8 @@ def main():
     folder = Path(__file__).resolve().parent
 
     # Path to the exe (relative to this script or adjust as needed)
-    exe_path = (
-        Path("DNA_App") / "DNAConsole" / "bin" / "Debug" / "net8.0" / "DNAConsole.exe"
-    ).resolve()
+    exe_path = folder.parent / "DNA_App" / "DNAConsole" / "bin" / "Debug" / "net8.0" / "DNAConsole.exe"
+
 
     if not exe_path.is_file():
         print(f"[ERROR] Executable not found at: {exe_path}")

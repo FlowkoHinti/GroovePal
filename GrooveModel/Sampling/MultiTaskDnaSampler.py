@@ -186,7 +186,7 @@ class MultitaskDNASampler(DNATokenSampler):
         is_ternary_default = (grid_factor % 3 == 0)
 
         dna_meta: Dict[str, Any] = {
-            "DNA_ID": f"pred_{dna_id}_variation_{variation}",
+            "DNA_ID": f"{dna_id}_variation_{variation}",
             "DNASet": dna_context.get("DNASet", "predictions"),
             "DNAType": dna_context.get("DNAType", 0),  # DnaType.Drumbeats = 0
             "AuthorData": dna_context.get("AuthorData", "groovepal"),
@@ -240,7 +240,7 @@ class MultitaskDNASampler(DNATokenSampler):
         base_beat_ctx = beat_positions[-ctx_len:].unsqueeze(0).to(self.device)  # (1, C)
 
         # --- Build a DNA version for the *original* context (non-generated)
-        base_dna = self.generate_dna_meta_base(dna_context, variation=-1)  # variation -1 = original
+        base_dna = dna_context
         units_per_bar = int(base_dna["Numerator"]) * int(base_dna["GridFactor"])
 
         if self.absolute_grid_units:

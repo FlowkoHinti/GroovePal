@@ -233,7 +233,7 @@ class SequentialDNASampler(DNATokenSampler):
         base_beat_ctx = beat_positions[-ctx_len:].unsqueeze(0).to(self.device)  # (1, C)
 
         # --- Build the base/original DNA
-        base_dna = self.generate_dna_meta_base(dna_context, variation=-1)
+        base_dna = dna_context
         units_per_bar = int(base_dna["Numerator"]) * int(base_dna["GridFactor"])
         ticks_per_grid_unit = int(base_dna["TicksPerGridUnit"])
 
