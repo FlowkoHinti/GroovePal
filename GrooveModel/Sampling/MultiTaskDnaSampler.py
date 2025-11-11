@@ -21,6 +21,8 @@ from GrooveModel.Utils.DNAOffset import quantize_offset, decode_offset_ticks
 from GrooveModel.Utils.DNAValue import decode_instrument
 from GrooveModel.Utils.DNAVelocity import quantize_velocity, decode_velocity
 
+from GroovePal.GrooveModel.Utils.SpecialTokens import SpecialTokens
+
 # -----------------------------
 # Helper: default column order
 # -----------------------------
@@ -413,6 +415,10 @@ class MultitaskDNASampler(DNATokenSampler):
         pred_tokens = pred_tokens[pred_tokens[:, TOKEN_COLS["beat_unit"]] < units_per_bar]
         if pred_tokens.numel() == 0:
             return [], 0
+
+        # Filter paddings
+        pred_tokens = pred_tokens[pred_tokens[:, TOKEN_COLS["instrument"]] > SpecialTokens.PAD]
+        pred_tokens = pred_tokens[pred_tokens[:, TOKEN_COLS["beat_unit"]] >= 0]
 
         # Detect non-repeating bar starts at BeatUnit == 1
         bu_col = TOKEN_COLS["beat_unit"]

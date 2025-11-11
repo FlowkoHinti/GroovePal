@@ -79,9 +79,22 @@ def load_progress() -> dict | None:
     return None
 
 
-def combo_key(c: dict) -> str:
-    """Unique, sortable combination identifier."""
-    return f"{c['experiment']}|{c['eval_type']}|T={c.get('temperature','-')}|P={c.get('top_p','-')}|N={c.get('max_tokens','-')}"
+# -----------------------------
+# Key generation and sorting
+# -----------------------------
+def combo_key(c: dict) -> tuple:
+    """
+    Generate a sortable key for a combination.
+    Using a tuple ensures correct numeric ordering
+    (no lexicographic string issues like '0.95' < '0.9').
+    """
+    return (
+        c["experiment"],
+        c["eval_type"],
+        float(c["temperature"]),
+        float(c["top_p"]),
+        int(c["max_tokens"]),
+    )
 
 
 def build_run_plan() -> list[dict]:
@@ -131,15 +144,16 @@ def main():
     PREDICTIONS_DIR.mkdir(parents=True, exist_ok=True)
 
     run_plan = build_run_plan()
+    run_plan.sort(key=combo_key)
     progress = load_progress()
     resume_after = None
     if progress and progress.get("last_completed"):
-        resume_after = combo_key(progress["last_completed"])
+        resume_after = progress.get("last_completed") if progress else None
         log.info(f"Resuming after: {resume_after}")
 
     for combo in run_plan:
         key = combo_key(combo)
-        if resume_after and key <= resume_after:
+        if resume_after and key <= combo_key(resume_after):
             continue  # skip already completed
 
         exp = combo["experiment"]
