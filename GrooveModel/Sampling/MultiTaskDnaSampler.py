@@ -418,7 +418,7 @@ class MultitaskDNASampler(DNATokenSampler):
 
         # Filter paddings
         pred_tokens = pred_tokens[pred_tokens[:, TOKEN_COLS["instrument"]] > SpecialTokens.PAD]
-        pred_tokens = pred_tokens[pred_tokens[:, TOKEN_COLS["beat_unit"]] >= 0]
+        pred_tokens = pred_tokens[pred_tokens[:, TOKEN_COLS["beat_unit"]] > SpecialTokens.PAD]
 
         # Detect non-repeating bar starts at BeatUnit == 1
         bu_col = TOKEN_COLS["beat_unit"]
