@@ -179,7 +179,7 @@ class SequentialDNASampler(DNATokenSampler):
         is_ternary_default = (grid_factor % 3 == 0)
 
         dna_meta: Dict[str, Any] = {
-            "DNA_ID": f"pred_{dna_id}_variation_{variation}",
+            "DNA_ID": f"{dna_id}_variation_{variation}",
             "DNASet": dna_context.get("DNASet", "predictions"),
             "DNAType": dna_context.get("DNAType", 0),  # DnaType.Drumbeats = 0
             "AuthorData": dna_context.get("AuthorData", "groovepal"),
