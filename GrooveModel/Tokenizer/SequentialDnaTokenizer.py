@@ -88,7 +88,7 @@ class SequentialDnaTokenizer(DnaTokenizer):
 
             if not instruments:
                 # No instruments → encode as REST
-                rest_val = InstrumentValues.Rest
+                rest_val = v.instrument_id_from_value(InstrumentValues.Rest)
                 ids_append(rest_val)
                 beats_append(beat_unit)
                 continue
@@ -114,6 +114,3 @@ class SequentialDnaTokenizer(DnaTokenizer):
         beats_append(last_beat)
 
         return torch.tensor(token_ids, dtype=torch.long), torch.tensor(beat_positions, dtype=torch.long)
-
-
-# TODO: Pretrained xlstm?
