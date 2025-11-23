@@ -69,8 +69,6 @@ def main():
     else:
         learner = SequentialDnaLearner(cfg)
 
-    # TODO: WEIGH METRICS CORRECTLY
-
     # Start training
     if args.train:
         learner.train()
