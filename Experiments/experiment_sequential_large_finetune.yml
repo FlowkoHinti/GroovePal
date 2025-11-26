@@ -43,7 +43,7 @@ model:
   slstm_at: [7, 13]
 
 train:
-  model_name: finetuned_sequential_relativeGridUnits
+  model_name: finetuned_sequential_large
   save_dir: Models
   device: cuda
   batch_size: 32
