@@ -313,12 +313,19 @@ class SequentialDNASampler(DNATokenSampler):
         unit_id: int = 0
         last_token: Tokentype = Tokentype.Start
         key: str = ""
+        initial_run = True
+
 
         for token_id in pred_tokens:
             if token_id in (vocab.ID_EOS, vocab['PAD']):
                 break
 
             token = vocab.token(token_id)
+            if initial_run:
+                initial_run = False
+                if token_id == vocab.ID_SEP:
+                    # Skip leading SEPs
+                    continue
 
             # Unit handling
             if token_id == vocab.ID_SEP:
