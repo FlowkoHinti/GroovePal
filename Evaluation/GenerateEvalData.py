@@ -3,7 +3,7 @@
 """
 GenerateEvalData.py
 Organizes generated DNA JSON + MIDI files from Predictions/ into Evaluation/EvalData/,
-and logs metadata in eval_metadata.csv. Supports resume and restart checkpointing.
+and logs metadata in eval_metadata_old.csv. Supports resume and restart checkpointing.
 """
 
 import argparse
@@ -35,7 +35,7 @@ PREDICTIONS_DIR = BASE_PATH / "Predictions"
 EVAL_DIR = BASE_PATH / "Evaluation"
 EVALDATA_DIR = EVAL_DIR / "EvalData"
 PROGRESS_FILE = EVAL_DIR / "eval_progress.json"
-METADATA_CSV = EVAL_DIR / "eval_metadata.csv"
+METADATA_CSV = EVAL_DIR / "eval_metadata_old.csv"
 
 ORIGINAL_INPUTS_DIR = EVALDATA_DIR / "OriginalInputs"
 ORIGINAL_INPUTS_DNA = ORIGINAL_INPUTS_DIR / "dna"
@@ -63,7 +63,7 @@ def parse_variation(filename: str) -> Optional[int]:
 def model_info_from_experiment(experiment: str) -> Dict[str, str]:
     model = experiment.replace("experiment_", "")
     model_type = "multitask" if "multitask" in model else "sequential"
-    pretrain_type = "pretrain" if "pretrain" in model else "finetune"
+    pretrain_type = "pretrain" if "pretrain" in model or not "finetune" in model else "finetune"
     return {"model": model, "model_type": model_type, "pretrain_type": pretrain_type}
 
 

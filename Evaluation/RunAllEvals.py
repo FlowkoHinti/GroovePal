@@ -46,10 +46,12 @@ GENERATE_EVAL = EVAL_DIR / "GenerateEvalData.py"
 # Experiment setup
 # -----------------------------
 EXPERIMENTS = [
-    "experiment_multitask_relgu_finetune",
-    "experiment_sequential_relgu_finetune",
-    "experiment_multitask_relgu_pretrain",
-    "experiment_sequential_relgu_pretrain",
+    #"experiment_multitask_relgu_finetune",
+    #"experiment_sequential_relgu_finetune",
+    #"experiment_multitask_relgu_pretrain",
+    #"experiment_sequential_relgu_pretrain",
+    "experiment_sequential_large",
+    "experiment_sequential_large_finetune",
 ]
 
 # Creativeness sweep (applies to all models)
@@ -58,7 +60,7 @@ CREATIVENESS_TOPPS = [0.8, 0.9, 0.95]
 CREATIVENESS_MAXTOK = 200
 
 # Sequence-length sweep (fine-tuned models only)
-SEQLEN_MAXTOKS = [100, 200, 400] # TODO: CHANGE THIS
+SEQLEN_MAXTOKS = [100, 200, 400]
 SEQLEN_TEMP = 1.0
 SEQLEN_TOPP = 0.9
 
