@@ -10,8 +10,8 @@ from GrooveModel.Learner.SequentialDnaLearner import SequentialDnaLearner
 
 def compute_embedding_dim(embedding_cfg):
     return sum([
-        embedding_cfg.instruments.embedding_dim,
-        embedding_cfg.velocities.embedding_dim,
+        embedding_cfg.out_instruments.embedding_dim,
+        embedding_cfg.out_velocities.embedding_dim,
         embedding_cfg.offsets.embedding_dim,
         embedding_cfg.time_signature.embedding_dim,
         embedding_cfg.grid_factor.embedding_dim,
