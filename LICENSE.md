@@ -24,7 +24,7 @@ repository, its models, or its derivatives.
 
    A. GigaMIDI Dataset (Metacreation / Hugging Face)
       - License: Creative Commons Attribution-NonCommercial 4.0 International
-        (CC BY-NC 4.0). :contentReference[oaicite:0]{index=0}
+        (CC BY-NC 4.0). https://huggingface.co/datasets/Metacreation/GigaMIDI
       - You may share and adapt the GigaMIDI dataset **only for non-commercial
         purposes** with proper attribution. Commercial use is expressly
         prohibited under this license.
@@ -32,7 +32,7 @@ repository, its models, or its derivatives.
       Creative Commons deed: https://creativecommons.org/licenses/by-nc/4.0/
 
    B. Groove MIDI Dataset (Google Magenta)
-      - License: Creative Commons Attribution 4.0 International (CC BY 4.0). :contentReference[oaicite:1]{index=1}
+      - License: Creative Commons Attribution 4.0 International (CC BY 4.0). https://magenta.withgoogle.com/datasets/groove
       - You may share and adapt the Groove MIDI Dataset, including for
         commercial purposes, with proper attribution to the dataset authors.
 
