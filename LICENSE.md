@@ -69,8 +69,11 @@ repository, its models, or its derivatives.
       must include:
 
        1. Attribution to the original dataset creators:
-          • GigaMIDI Dataset — distributed under CC BY-NC 4.0. :contentReference[oaicite:2]{index=2}
-          • Groove MIDI Dataset — distributed under CC BY 4.0. :contentReference[oaicite:3]{index=3}
+         • GigaMIDI Dataset — distributed under CC BY‑NC 4.0: 
+           https://huggingface.co/datasets/Metacreation/GigaMIDI
+      
+         • Groove MIDI Dataset — distributed under CC BY 4.0: 
+           https://magenta.withgoogle.com/datasets/groove
 
        2. A reference to the Creative Commons deeds for both licenses.
 
